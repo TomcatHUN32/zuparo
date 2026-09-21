@@ -196,6 +196,19 @@ class Order(OrderIn):
 class OrderUpdate(BaseModel):
     status: Optional[str] = None
     courierId: Optional[str] = None
+    items: Optional[List[OrderItem]] = None
+    subtotal: Optional[int] = None
+    deliveryFee: Optional[int] = None
+    discountAmount: Optional[int] = None
+    discountPct: Optional[int] = None
+    couponCode: Optional[str] = None
+    total: Optional[int] = None
+    note: Optional[str] = None
+    zip: Optional[str] = None
+    city: Optional[str] = None
+    street: Optional[str] = None
+    floor: Optional[str] = None
+    payment: Optional[str] = None
 
 class Coupon(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
