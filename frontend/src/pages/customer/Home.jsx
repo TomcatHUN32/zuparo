@@ -10,7 +10,7 @@ const Home = () => {
   const { menu } = useData();
   const featured = [
     menu.find((m) => m.name === 'Margherita'),
-    menu.find((m) => m.name === 'ZAVO Burger menü'),
+    menu.find((m) => m.name === 'ZUPARO Burger menü'),
     menu.find((m) => m.name === 'Gyros tál'),
     menu.find((m) => m.name === 'Csirkés tortilla'),
   ].filter(Boolean);
@@ -39,7 +39,7 @@ const Home = () => {
           </div>
           <div className="col-span-12 md:col-span-6 flex justify-center">
             <div className="relative">
-              <img src={LOGO_URL} alt="ZAVO Pizza" className="h-[380px] md:h-[460px] object-contain drop-shadow-[0_30px_60px_rgba(212,175,55,0.25)]" />
+              <img src={LOGO_URL} alt="ZUPARO Pizza" className="h-[380px] md:h-[460px] object-contain drop-shadow-[0_30px_60px_rgba(212,175,55,0.25)]" />
               <div className="absolute -bottom-4 -right-4 bg-neutral-900 border border-neutral-800 rounded-2xl px-4 py-3 flex items-center gap-2 shadow-2xl">
                 <Flame size={22} className="text-[#d4af37]" />
                 <div className="leading-tight"><div className="text-xs text-neutral-400">FRISSEN.</div><div className="text-xs text-neutral-400">SZAFTOSAN.</div><div className="text-xs text-neutral-400">NEKED.</div></div>

@@ -189,7 +189,7 @@ const CouponsTab = () => {
       <div className="bg-white rounded-xl border border-neutral-200 p-5">
         <h3 className="text-base font-bold text-neutral-900 mb-3 inline-flex items-center gap-2"><Ticket size={18} /> Új kupon</h3>
         <div className="grid grid-cols-12 gap-3">
-          <input placeholder="Kód (pl. ZAVO10)" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })} className="col-span-4 px-3 py-2 border border-neutral-200 rounded-lg text-sm" />
+          <input placeholder="Kód (pl. ZUPARO10)" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })} className="col-span-4 px-3 py-2 border border-neutral-200 rounded-lg text-sm" />
           <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} className="col-span-3 px-3 py-2 border border-neutral-200 rounded-lg text-sm">
             <option value="percent">Százalékos (%)</option>
             <option value="amount">Fix összeg (Ft)</option>

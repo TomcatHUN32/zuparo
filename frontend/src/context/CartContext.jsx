@@ -4,9 +4,9 @@ const CartContext = createContext(null);
 
 export const CartProvider = ({ children }) => {
   const [cart, setCart] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('zavo_cart') || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem('zuparo_cart') || '[]'); } catch { return []; }
   });
-  useEffect(() => { localStorage.setItem('zavo_cart', JSON.stringify(cart)); }, [cart]);
+  useEffect(() => { localStorage.setItem('zuparo_cart', JSON.stringify(cart)); }, [cart]);
 
   const add = (item) => setCart((prev) => {
     const idx = prev.findIndex((c) => c.id === item.id);

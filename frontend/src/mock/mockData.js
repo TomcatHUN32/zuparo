@@ -1,6 +1,6 @@
-// Mock data for ZAVO ordering platform
+// Mock data for ZUPARO ordering platform
 
-export const LOGO_URL = 'https://customer-assets-eiarnc6j.emergentagent.net/job_15565c37-3f1c-40cf-b967-336af5c1b9c1/artifacts/joxxan3v_51582d5b-36cb-4d37-93e4-f5cd5fcb601f.jpg';
+export const LOGO_URL = 'https://customer-assets-v7afamib.emergentagent.net/job_order-app-65/artifacts/zepx2s3q_cbb74501-e7c5-4d95-89c4-9894f9fa66a5-Picsart-BackgroundRemover.png';
 
 export const CATEGORIES = [
   { id: 'pizzak', name: 'Pizzák', icon: 'Pizza' },
@@ -23,11 +23,11 @@ export const INITIAL_MENU = [
   { id: 'm6', category: 'pizzak', name: 'Diavolo', description: 'Paradicsomszósz, szalámi, chili, mozzarella', price: 2590, available: true },
   { id: 'm7', category: 'pizzak', name: 'BBQ Csirke', description: 'BBQ szósz, csirke, lilahagyma, mozzarella', price: 2690, available: true },
   { id: 'm8', category: 'pizzak', name: 'Tonhalas', description: 'Paradicsomszósz, tonhal, lilahagyma, mozzarella', price: 2690, available: true },
-  { id: 'm9', category: 'pizzak', name: 'ZAVO Special', description: 'Paradicsomszósz, sonka, szalámi, gomba, kukorica, mozzarella', price: 2890, available: true },
+  { id: 'm9', category: 'pizzak', name: 'ZUPARO Special', description: 'Paradicsomszósz, sonka, szalámi, gomba, kukorica, mozzarella', price: 2890, available: true },
   // Hamburgerek
-  { id: 'h1', category: 'hamburgerek', name: 'ZAVO Burger menü', description: 'Marhahús, cheddar, friss zöldségek, ZAVO szósz + hasáb + üdítő', price: 2890, available: true },
+  { id: 'h1', category: 'hamburgerek', name: 'ZUPARO Burger menü', description: 'Marhahús, cheddar, friss zöldségek, ZUPARO szósz + hasáb + üdítő', price: 2890, available: true },
   { id: 'h2', category: 'hamburgerek', name: 'Cheeseburger', description: 'Marhahús, cheddar, saláta, uborka', price: 2190, available: true },
-  { id: 'h3', category: 'hamburgerek', name: 'Dupla Burger', description: 'Dupla marhahús, dupla sajt, ZAVO szósz', price: 2990, available: true },
+  { id: 'h3', category: 'hamburgerek', name: 'Dupla Burger', description: 'Dupla marhahús, dupla sajt, ZUPARO szósz', price: 2990, available: true },
   { id: 'h4', category: 'hamburgerek', name: 'Csirke Burger', description: 'Rántott csirke, saláta, majonéz', price: 2290, available: true },
   // Gyros
   { id: 'g1', category: 'gyros', name: 'Gyros tál', description: 'Szaftos hús, friss saláta, hasábburgonya, öntet', price: 2490, available: true },
@@ -93,7 +93,7 @@ export const INITIAL_ORDERS = [
     zip: '3734', city: 'Szuhogy', street: 'Kossuth Lajos utca 15.', floor: 'Földszint',
     type: 'delivery', payment: 'cash',
     items: [
-      { id: 'h1', name: 'ZAVO Burger menü', price: 2890, qty: 1, note: 'Extra cheddar' },
+      { id: 'h1', name: 'ZUPARO Burger menü', price: 2890, qty: 1, note: 'Extra cheddar' },
       { id: 'g1', name: 'Gyros tál', price: 2490, qty: 1, note: '' },
     ],
     subtotal: 5380, deliveryFee: 500, total: 5880,
@@ -123,7 +123,7 @@ export const INITIAL_ORDERS = [
     zip: '3733', city: 'Rudabánya', street: 'Fő út 22.', floor: '',
     type: 'delivery', payment: 'cash',
     items: [
-      { id: 'm9', name: 'ZAVO Special', price: 2890, qty: 1, note: '' },
+      { id: 'm9', name: 'ZUPARO Special', price: 2890, qty: 1, note: '' },
     ],
     subtotal: 2890, deliveryFee: 700, total: 3590,
     courierId: null, status: 'preparing',

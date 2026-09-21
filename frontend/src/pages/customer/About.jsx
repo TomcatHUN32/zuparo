@@ -8,7 +8,7 @@ const About = () => (
       <img src={LOGO_URL} alt="" className="h-24 mx-auto" />
       <div className="font-script text-2xl text-[#d4af37] mt-3">Mindig jó falat</div>
       <h1 className="font-display text-4xl md:text-5xl font-black text-white mt-2">RÓLUNK</h1>
-      <p className="mt-5 text-neutral-300 max-w-2xl mx-auto leading-relaxed">A ZAVO Food &amp; More egy családi származású étterem, ahol a friss alapanyagok, a hagyományos receptek és a modern konyha találkoznak. Éjjel-nappal elérhetők vagyunk, hogy bármikor kiszolgálhassunk téged.</p>
+      <p className="mt-5 text-neutral-300 max-w-2xl mx-auto leading-relaxed">A ZUPARO Food &amp; More egy családi származású étterem, ahol a friss alapanyagok, a hagyományos receptek és a modern konyha találkoznak. Éjjel-nappal elérhetők vagyunk, hogy bármikor kiszolgálhassunk téged.</p>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-12">
       <Feature icon={Utensils} title="Friss alapanyagok" text="Napi beszállítások helyi termelőktől." />

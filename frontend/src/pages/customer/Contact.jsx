@@ -14,7 +14,7 @@ const Contact = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-10">
         <div className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6 space-y-4">
           <Row icon={Phone} label="Telefon" val="06 30 728 2289" />
-          <Row icon={Mail} label="E-mail" val="info@zavo.hu" />
+          <Row icon={Mail} label="E-mail" val="info@zuparo.hu" />
           <Row icon={MapPin} label="Cím" val="3734 Szuhogy, Fő utca 1." />
           <div className="pt-4 border-t border-neutral-800 text-sm text-neutral-400">Nyitva: minden nap 0–24 óra</div>
         </div>

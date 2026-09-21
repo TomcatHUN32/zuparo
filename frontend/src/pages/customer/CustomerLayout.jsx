@@ -16,13 +16,13 @@ const CustomerLayout = () => {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   return (
-    <div className="zavo-dark min-h-screen bg-neutral-950 text-neutral-100">
+    <div className="zuparo-dark min-h-screen bg-neutral-950 text-neutral-100">
       <header className="sticky top-0 z-30 bg-neutral-950/85 backdrop-blur border-b border-neutral-900">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-6">
           <Link to="/" className="flex items-center gap-3">
-            <img src={LOGO_URL} alt="ZAVO" className="h-12 w-12 object-contain" />
+            <img src={LOGO_URL} alt="ZUPARO" className="h-12 w-12 object-contain" />
             <div className="leading-none">
-              <div className="text-2xl font-extrabold tracking-wider gold-text-gradient">ZAVO</div>
+              <div className="text-2xl font-extrabold tracking-wider gold-text-gradient">ZUPARO</div>
               <div className="text-[9px] tracking-[0.35em] text-neutral-500">FOOD &amp; MORE</div>
             </div>
           </Link>
@@ -61,7 +61,7 @@ const CustomerLayout = () => {
       <main><Outlet /></main>
       <footer className="border-t border-neutral-900 bg-neutral-950">
         <div className="max-w-7xl mx-auto px-6 py-6 flex flex-wrap items-center gap-6 justify-between">
-          <Link to="/" className="flex items-center gap-2"><img src={LOGO_URL} className="h-8 w-8 object-contain" alt="" /><span className="gold-text-gradient font-extrabold tracking-wider">ZAVO</span></Link>
+          <Link to="/" className="flex items-center gap-2"><img src={LOGO_URL} className="h-8 w-8 object-contain" alt="" /><span className="gold-text-gradient font-extrabold tracking-wider">ZUPARO</span></Link>
           <nav className="flex gap-6 text-sm text-neutral-400">
             <Link to="/">Főoldal</Link><Link to="/etlap">Étlap</Link><Link to="/rolunk">Rólunk</Link><Link to="/szallitas">Szállítás</Link><Link to="/kapcsolat">Kapcsolat</Link>
           </nav>

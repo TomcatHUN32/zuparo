@@ -16,11 +16,11 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-JWT_SECRET = os.environ.get('JWT_SECRET', 'zavo-secret-change-me')
+JWT_SECRET = os.environ.get('JWT_SECRET', 'zuparo-secret-change-me')
 JWT_ALG = 'HS256'
 JWT_EXPIRE_HOURS = 24 * 7
 
-app = FastAPI(title="ZAVO Ordering API")
+app = FastAPI(title="ZUPARO Ordering API")
 api = APIRouter(prefix="/api")
 
 # =============== Auth ===============
@@ -452,10 +452,10 @@ SEED_MENU = [
     ("pizzak", "Diavolo", "Paradicsomszósz, szalámi, chili, mozzarella", 2590),
     ("pizzak", "BBQ Csirke", "BBQ szósz, csirke, lilahagyma, mozzarella", 2690),
     ("pizzak", "Tonhalas", "Paradicsomszósz, tonhal, lilahagyma, mozzarella", 2690),
-    ("pizzak", "ZAVO Special", "Paradicsomszósz, sonka, szalámi, gomba, kukorica, mozzarella", 2890),
-    ("hamburgerek", "ZAVO Burger menü", "Marhahús, cheddar, friss zöldségek, ZAVO szósz + hasáb + üdítő", 2890),
+    ("pizzak", "ZUPARO Special", "Paradicsomszósz, sonka, szalámi, gomba, kukorica, mozzarella", 2890),
+    ("hamburgerek", "ZUPARO Burger menü", "Marhahús, cheddar, friss zöldségek, ZUPARO szósz + hasáb + üdítő", 2890),
     ("hamburgerek", "Cheeseburger", "Marhahús, cheddar, saláta, uborka", 2190),
-    ("hamburgerek", "Dupla Burger", "Dupla marhahús, dupla sajt, ZAVO szósz", 2990),
+    ("hamburgerek", "Dupla Burger", "Dupla marhahús, dupla sajt, ZUPARO szósz", 2990),
     ("hamburgerek", "Csirke Burger", "Rántott csirke, saláta, majonéz", 2290),
     ("gyros", "Gyros tál", "Szaftos hús, friss saláta, hasábburgonya, öntet", 2490),
     ("gyros", "Gyros pita", "Pita, hús, zöldség, tzatziki", 1990),
@@ -494,20 +494,20 @@ async def seed():
     if await db.inventory.count_documents({}) == 0:
         docs = [InventoryItem(name=n, unit=u, stock=s, minStock=m).dict() for n, u, s, m in SEED_INVENTORY]
         await db.inventory.insert_many(docs); result["inventory"] = len(docs)
-    # Seed default admin
-    if await db.users.count_documents({"role": "admin"}) == 0:
+    # Seed default admin (idempotent per email)
+    if not await db.users.find_one({"email": "admin@zuparo.hu"}):
         uid = str(uuid.uuid4())
         await db.users.insert_one({
-            "id": uid, "email": "admin@zavo.hu", "name": "Sári Roland", "phone": "",
+            "id": uid, "email": "admin@zuparo.hu", "name": "Sári Roland", "phone": "",
             "role": "admin", "password_hash": bcrypt.hash("admin123"),
             "createdAt": datetime.now(timezone.utc).isoformat(),
         })
-        result["admin"] = "admin@zavo.hu / admin123"
+        result["admin"] = "admin@zuparo.hu / admin123"
     return {"seeded": result}
 
 @api.get("/")
 async def root():
-    return {"service": "ZAVO Ordering API", "status": "ok"}
+    return {"service": "ZUPARO Ordering API", "status": "ok"}
 
 app.include_router(api)
 
@@ -521,10 +521,16 @@ logger = logging.getLogger(__name__)
 @app.on_event("startup")
 async def _startup_seed():
     try:
-        if await db.users.count_documents({"role": "admin"}) == 0:
+        # Rename any legacy ZAVO/Zavo items to ZUPARO/Zuparo
+        async for m in db.menu_items.find({"$or": [{"name": {"$regex": "ZAVO"}}, {"description": {"$regex": "ZAVO"}}]}):
+            new_name = (m.get("name") or "").replace("ZAVO", "ZUPARO").replace("Zavo", "Zuparo")
+            new_desc = (m.get("description") or "").replace("ZAVO", "ZUPARO").replace("Zavo", "Zuparo")
+            await db.menu_items.update_one({"id": m["id"]}, {"$set": {"name": new_name, "description": new_desc}})
+        # Ensure default admin@zuparo.hu exists
+        if not await db.users.find_one({"email": "admin@zuparo.hu"}):
             await seed()
     except Exception as e:
-        logger.error(f"Startup seed failed: {e}")
+        logger.error(f"Startup seed/migration failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

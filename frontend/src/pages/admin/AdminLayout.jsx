@@ -30,7 +30,7 @@ const AdminLayout = () => {
   const location = useLocation();
   const nav = useNavigate();
   const { user, logout } = useAuth();
-  const meta = PAGE_META[location.pathname] || { title: 'ZAVO Admin', subtitle: '' };
+  const meta = PAGE_META[location.pathname] || { title: 'ZUPARO Admin', subtitle: '' };
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
 
@@ -47,9 +47,9 @@ const AdminLayout = () => {
       <aside className="w-64 bg-neutral-950 text-neutral-100 flex flex-col sticky top-0 h-screen">
         <div className="px-6 pt-6 pb-4 border-b border-neutral-800">
           <div className="flex items-center gap-3">
-            <img src={LOGO_URL} alt="ZAVO" className="h-14 w-14 object-contain rounded-md bg-black/40 p-1" />
+            <img src={LOGO_URL} alt="ZUPARO" className="h-14 w-14 object-contain rounded-md bg-black/40 p-1" />
             <div>
-              <div className="text-2xl font-extrabold tracking-wide gold-text-gradient">ZAVO</div>
+              <div className="text-2xl font-extrabold tracking-wide gold-text-gradient">ZUPARO</div>
               <div className="text-[10px] tracking-[0.3em] text-neutral-400">FOOD &amp; MORE</div>
             </div>
           </div>
