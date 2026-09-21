@@ -30,6 +30,7 @@ const NewOrder = () => {
   const [cart, setCart] = useState([]);
   const [coupon, setCoupon] = useState('');
   const [couponApplied, setCouponApplied] = useState(null);
+  const [manualDiscount, setManualDiscount] = useState({ kind: 'percent', value: 0 });
   const [internalNote, setInternalNote] = useState('');
   const [showReturning, setShowReturning] = useState(false);
 
@@ -54,11 +55,16 @@ const NewOrder = () => {
   const deliveryFee = orderType === 'delivery'
     ? (channel === 'foodora' ? Number(foodoraFee || 0) : getZoneFee(address.zip))
     : 0;
-  let discountAmount = 0;
+  let couponDiscount = 0;
   if (couponApplied) {
-    if (couponApplied.kind === 'percent') discountAmount = Math.round(subtotal * couponApplied.value / 100);
-    else discountAmount = Math.min(subtotal, couponApplied.value);
+    if (couponApplied.kind === 'percent') couponDiscount = Math.round(subtotal * couponApplied.value / 100);
+    else couponDiscount = Math.min(subtotal, couponApplied.value);
   }
+  const manualVal = Math.max(0, Number(manualDiscount.value || 0));
+  const manualAmount = manualDiscount.kind === 'percent'
+    ? Math.round(subtotal * Math.min(100, manualVal) / 100)
+    : Math.min(subtotal, manualVal);
+  const discountAmount = Math.min(subtotal, couponDiscount + manualAmount);
   const total = Math.max(0, subtotal - discountAmount + deliveryFee);
 
   const applyCoupon = async () => {
@@ -79,7 +85,7 @@ const NewOrder = () => {
     setShowReturning(false);
     toast.success(`${c.name} adatai betöltve`);
   };
-  const clearAll = () => { setCart([]); setCouponApplied(null); setCoupon(''); toast.info('Kosár ürítve'); };
+  const clearAll = () => { setCart([]); setCouponApplied(null); setCoupon(''); setManualDiscount({ kind: 'percent', value: 0 }); toast.info('Kosár ürítve'); };
 
   const submitOrder = async () => {
     if (!customer.name || !customer.phone) return toast.error('Kérlek add meg a vendég adatait');
@@ -91,13 +97,13 @@ const NewOrder = () => {
         zip: address.zip, city: address.city, street: address.street, floor: address.floor,
         type: orderType, payment, channel,
         items: cart, subtotal, deliveryFee,
-        discountPct: couponApplied?.kind === 'percent' ? couponApplied.value : 0,
+        discountPct: (couponApplied?.kind === 'percent' ? couponApplied.value : 0) + (manualDiscount.kind === 'percent' ? Math.min(100, manualVal) : 0),
         discountAmount,
         couponCode: couponApplied?.code || '',
         total, note: internalNote,
       });
       toast.success(`Rendelés elküldve: ${o.id}`);
-      setCart([]); setCouponApplied(null); setCoupon(''); setInternalNote('');
+      setCart([]); setCouponApplied(null); setCoupon(''); setManualDiscount({ kind: 'percent', value: 0 }); setInternalNote('');
       setCustomer({ name: '', phone: '' }); setAddress({ zip: '3734', city: 'Szuhogy', street: '', floor: '', note: '' });
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Hiba a rendelés mentésekor');
@@ -237,14 +243,23 @@ const NewOrder = () => {
             {cart.length === 0 && <div className="text-sm text-neutral-500 py-8 text-center">A kosár még üres.</div>}
           </div>
 
-          <div className="mt-3">
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center gap-2 rounded-lg bg-neutral-50 border border-neutral-200 px-3 py-2">
+              <Percent size={16} className="text-neutral-500" />
+              <div className="text-sm text-neutral-700 flex-1">Kézi kedvezmény</div>
+              <div className="inline-flex rounded-md border border-neutral-300 overflow-hidden">
+                <button type="button" onClick={() => setManualDiscount({ ...manualDiscount, kind: 'percent' })} className={`px-2 py-1 text-xs font-semibold ${manualDiscount.kind === 'percent' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-600'}`}>%</button>
+                <button type="button" onClick={() => setManualDiscount({ ...manualDiscount, kind: 'amount' })} className={`px-2 py-1 text-xs font-semibold border-l border-neutral-300 ${manualDiscount.kind === 'amount' ? 'bg-neutral-900 text-white' : 'bg-white text-neutral-600'}`}>Ft</button>
+              </div>
+              <input type="number" min={0} value={manualDiscount.value} onChange={(e) => setManualDiscount({ ...manualDiscount, value: e.target.value })} className="w-20 text-right bg-white border border-neutral-200 rounded px-2 py-1 text-sm" placeholder="0" />
+            </div>
             <div className="flex items-center gap-2 rounded-lg bg-neutral-50 border border-neutral-200 px-3 py-2">
               <Tag size={16} className="text-neutral-500" />
               <input value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="Kuponkód" className="flex-1 bg-transparent focus:outline-none text-sm" />
               <button onClick={applyCoupon} className="text-xs px-3 py-1.5 rounded-md bg-neutral-900 text-white">Beváltás</button>
             </div>
             {couponApplied && (
-              <div className="mt-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 inline-flex items-center gap-2">
+              <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 inline-flex items-center gap-2">
                 <CheckCircle2 size={12} /> {couponApplied.code} • {couponApplied.kind === 'percent' ? `${couponApplied.value}%` : formatFt(couponApplied.value)} kedvezmény
                 <button onClick={() => { setCouponApplied(null); setCoupon(''); }} className="ml-2 text-emerald-800/60 hover:text-emerald-900">✕</button>
               </div>
@@ -253,7 +268,7 @@ const NewOrder = () => {
 
           <div className="mt-4 space-y-1.5 text-sm">
             <Row label="Részösszeg" value={formatFt(subtotal)} />
-            {discountAmount > 0 && <Row label={`Kedvezmény ${couponApplied?.kind === 'percent' ? `(${couponApplied.value}%)` : ''}`} value={`- ${formatFt(discountAmount)}`} />}
+            {discountAmount > 0 && <Row label={couponApplied && manualAmount > 0 ? 'Kedvezmény (kupon + kézi)' : couponApplied ? `Kupon ${couponApplied.code}` : `Kézi kedvezmény ${manualDiscount.kind === 'percent' ? `(${manualVal}%)` : ''}`} value={`- ${formatFt(discountAmount)}`} />}
             {orderType === 'delivery' && channel === 'foodora' && (
               <div className="flex items-center justify-between">
                 <div className="text-neutral-600 inline-flex items-center gap-2"><Globe size={14} className="text-neutral-500" /> Foodora szállítási díj</div>
