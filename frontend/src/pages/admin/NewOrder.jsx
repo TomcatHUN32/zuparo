@@ -254,7 +254,16 @@ const NewOrder = () => {
           <div className="mt-4 space-y-1.5 text-sm">
             <Row label="Részösszeg" value={formatFt(subtotal)} />
             {discountAmount > 0 && <Row label={`Kedvezmény ${couponApplied?.kind === 'percent' ? `(${couponApplied.value}%)` : ''}`} value={`- ${formatFt(discountAmount)}`} />}
-            {orderType === 'delivery' && <Row label={channel === 'foodora' ? 'Foodora szállítás' : 'Kiszállítási díj'} value={formatFt(deliveryFee)} />}
+            {orderType === 'delivery' && channel === 'foodora' && (
+              <div className="flex items-center justify-between">
+                <div className="text-neutral-600 inline-flex items-center gap-2"><Globe size={14} className="text-neutral-500" /> Foodora szállítási díj</div>
+                <div className="flex items-center gap-1">
+                  <input type="number" value={foodoraFee} onChange={(e) => setFoodoraFee(e.target.value)} placeholder="0" className="w-24 text-right border border-neutral-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
+                  <span className="text-neutral-500">Ft</span>
+                </div>
+              </div>
+            )}
+            {orderType === 'delivery' && channel !== 'foodora' && <Row label="Kiszállítási díj" value={formatFt(deliveryFee)} />}
             <div className="flex items-center justify-between pt-2 mt-2 border-t border-neutral-200">
               <div className="text-lg font-extrabold text-neutral-900">ÖSSZESEN:</div>
               <div className="text-2xl font-extrabold text-neutral-900">{formatFt(total)}</div>
