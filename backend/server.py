@@ -1,14 +1,13 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
+import os, logging, uuid, jwt
 from pathlib import Path
-from pydantic import BaseModel, Field
-from typing import List, Optional, Any
-import uuid
-from datetime import datetime, timezone
+from pydantic import BaseModel, Field, EmailStr
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone, timedelta, date
+from passlib.hash import bcrypt
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -17,16 +16,90 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
+JWT_SECRET = os.environ.get('JWT_SECRET', 'zavo-secret-change-me')
+JWT_ALG = 'HS256'
+JWT_EXPIRE_HOURS = 24 * 7
+
 app = FastAPI(title="ZAVO Ordering API")
 api = APIRouter(prefix="/api")
 
-# ---------- Models ----------
+# =============== Auth ===============
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    phone: Optional[str] = ""
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    name: str
+    phone: str = ""
+    role: str
+
+def make_token(user_id: str, role: str) -> str:
+    payload = {"sub": user_id, "role": role, "exp": datetime.utcnow() + timedelta(hours=JWT_EXPIRE_HOURS)}
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    if not authorization or not authorization.lower().startswith('bearer '):
+        raise HTTPException(401, "Missing token")
+    token = authorization.split(' ', 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.PyJWTError:
+        raise HTTPException(401, "Invalid token")
+    user = await db.users.find_one({"id": payload.get('sub')})
+    if not user:
+        raise HTTPException(401, "User not found")
+    user.pop('_id', None); user.pop('password_hash', None)
+    return user
+
+async def require_admin(user=Depends(get_current_user)):
+    if user.get('role') != 'admin':
+        raise HTTPException(403, "Admin only")
+    return user
+
+@api.post('/auth/register')
+async def register(data: RegisterIn):
+    if await db.users.find_one({"email": data.email.lower()}):
+        raise HTTPException(400, "Ez az email már regisztrálva van")
+    uid = str(uuid.uuid4())
+    doc = {
+        "id": uid, "email": data.email.lower(), "name": data.name,
+        "phone": data.phone or "", "role": "customer",
+        "password_hash": bcrypt.hash(data.password),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.users.insert_one(doc)
+    token = make_token(uid, "customer")
+    return {"token": token, "user": {"id": uid, "email": data.email.lower(), "name": data.name, "phone": data.phone or "", "role": "customer"}}
+
+@api.post('/auth/login')
+async def login(data: LoginIn):
+    user = await db.users.find_one({"email": data.email.lower()})
+    if not user or not bcrypt.verify(data.password, user.get('password_hash', '')):
+        raise HTTPException(401, "Hibás email vagy jelszó")
+    token = make_token(user['id'], user['role'])
+    return {"token": token, "user": {"id": user['id'], "email": user['email'], "name": user['name'], "phone": user.get('phone', ''), "role": user['role']}}
+
+@api.get('/auth/me')
+async def me(user=Depends(get_current_user)):
+    return user
+
+# =============== Models ===============
 class MenuItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     category: str
     name: str
     description: str = ""
     price: int
+    priceFoodora: Optional[int] = None
+    priceFalatozz: Optional[int] = None
     available: bool = True
 
 class MenuItemIn(BaseModel):
@@ -34,6 +107,8 @@ class MenuItemIn(BaseModel):
     name: str
     description: Optional[str] = ""
     price: int
+    priceFoodora: Optional[int] = None
+    priceFalatozz: Optional[int] = None
     available: Optional[bool] = True
 
 class MenuItemUpdate(BaseModel):
@@ -41,6 +116,8 @@ class MenuItemUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     price: Optional[int] = None
+    priceFoodora: Optional[int] = None
+    priceFalatozz: Optional[int] = None
     available: Optional[bool] = None
 
 class Zone(BaseModel):
@@ -50,14 +127,10 @@ class Zone(BaseModel):
     fee: int
 
 class ZoneIn(BaseModel):
-    zip: str
-    city: str
-    fee: int
+    zip: str; city: str; fee: int
 
 class ZoneUpdate(BaseModel):
-    zip: Optional[str] = None
-    city: Optional[str] = None
-    fee: Optional[int] = None
+    zip: Optional[str] = None; city: Optional[str] = None; fee: Optional[int] = None
 
 class Courier(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -66,64 +139,43 @@ class Courier(BaseModel):
     active: bool = True
 
 class CourierIn(BaseModel):
-    name: str
-    phone: Optional[str] = ""
-    active: Optional[bool] = True
+    name: str; phone: Optional[str] = ""; active: Optional[bool] = True
 
 class CourierUpdate(BaseModel):
-    name: Optional[str] = None
-    phone: Optional[str] = None
-    active: Optional[bool] = None
+    name: Optional[str] = None; phone: Optional[str] = None; active: Optional[bool] = None
 
 class Customer(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str
-    phone: str
-    zip: str = ""
-    city: str = ""
-    street: str = ""
-    floor: str = ""
+    name: str; phone: str
+    zip: str = ""; city: str = ""; street: str = ""; floor: str = ""
     orderCount: int = 0
 
 class InventoryItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str
-    unit: str
-    stock: float = 0
-    minStock: float = 0
+    name: str; unit: str; stock: float = 0; minStock: float = 0
 
 class InventoryIn(BaseModel):
-    name: str
-    unit: str
-    stock: float = 0
-    minStock: float = 0
+    name: str; unit: str; stock: float = 0; minStock: float = 0
 
 class InventoryUpdate(BaseModel):
-    name: Optional[str] = None
-    unit: Optional[str] = None
-    stock: Optional[float] = None
-    minStock: Optional[float] = None
+    name: Optional[str] = None; unit: Optional[str] = None; stock: Optional[float] = None; minStock: Optional[float] = None
 
 class OrderItem(BaseModel):
-    id: str
-    name: str
-    price: int
-    qty: int
-    note: str = ""
+    id: str; name: str; price: int; qty: int; note: str = ""
 
 class OrderIn(BaseModel):
     customerName: str
     phone: str
-    zip: str = ""
-    city: str = ""
-    street: str = ""
-    floor: str = ""
+    zip: str = ""; city: str = ""; street: str = ""; floor: str = ""
     type: str  # delivery|pickup|dinein
-    payment: str  # cash|card
+    payment: str  # cash|card|online
+    channel: str = "house"  # house|foodora|falatozz
     items: List[OrderItem]
     subtotal: int
     deliveryFee: int = 0
     discountPct: int = 0
+    discountAmount: int = 0
+    couponCode: Optional[str] = ""
     total: int
     note: Optional[str] = ""
 
@@ -132,181 +184,265 @@ class Order(OrderIn):
     status: str = "new"
     courierId: Optional[str] = None
     createdAt: str
+    userId: Optional[str] = None
 
 class OrderUpdate(BaseModel):
     status: Optional[str] = None
     courierId: Optional[str] = None
 
-# ---------- Helpers ----------
+class Coupon(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    code: str
+    kind: str  # 'percent' | 'amount'
+    value: int
+    active: bool = True
+
+class CouponIn(BaseModel):
+    code: str; kind: str; value: int; active: Optional[bool] = True
+
+class CouponUpdate(BaseModel):
+    code: Optional[str] = None; kind: Optional[str] = None; value: Optional[int] = None; active: Optional[bool] = None
+
+# =============== Helpers ===============
 def _clean(doc):
-    if doc is None:
-        return None
-    doc.pop("_id", None)
-    return doc
+    if doc is None: return None
+    doc.pop("_id", None); return doc
 
 async def _list(col):
     return [_clean(d) async for d in db[col].find({})]
 
-# ---------- Menu ----------
+# =============== Menu ===============
 @api.get("/menu")
 async def list_menu():
     return await _list("menu_items")
 
 @api.post("/menu", response_model=MenuItem)
-async def create_menu(m: MenuItemIn):
+async def create_menu(m: MenuItemIn, _admin=Depends(require_admin)):
     item = MenuItem(**m.dict())
-    await db.menu_items.insert_one(item.dict())
-    return item
+    await db.menu_items.insert_one(item.dict()); return item
 
 @api.put("/menu/{id}")
-async def update_menu(id: str, patch: MenuItemUpdate):
+async def update_menu(id: str, patch: MenuItemUpdate, _admin=Depends(require_admin)):
     p = {k: v for k, v in patch.dict().items() if v is not None}
-    if not p:
-        raise HTTPException(400, "Empty update")
+    if not p: raise HTTPException(400, "Empty update")
     r = await db.menu_items.update_one({"id": id}, {"$set": p})
-    if r.matched_count == 0:
-        raise HTTPException(404, "Menu item not found")
-    doc = await db.menu_items.find_one({"id": id})
-    return _clean(doc)
+    if r.matched_count == 0: raise HTTPException(404, "Not found")
+    return _clean(await db.menu_items.find_one({"id": id}))
 
 @api.delete("/menu/{id}")
-async def delete_menu(id: str):
-    r = await db.menu_items.delete_one({"id": id})
-    return {"deleted": r.deleted_count}
+async def delete_menu(id: str, _admin=Depends(require_admin)):
+    r = await db.menu_items.delete_one({"id": id}); return {"deleted": r.deleted_count}
 
-# ---------- Zones ----------
+# =============== Zones ===============
 @api.get("/zones")
 async def list_zones():
     return await _list("delivery_zones")
 
 @api.post("/zones", response_model=Zone)
-async def create_zone(z: ZoneIn):
-    zone = Zone(**z.dict())
-    await db.delivery_zones.insert_one(zone.dict())
-    return zone
+async def create_zone(z: ZoneIn, _admin=Depends(require_admin)):
+    zone = Zone(**z.dict()); await db.delivery_zones.insert_one(zone.dict()); return zone
 
 @api.put("/zones/{id}")
-async def update_zone(id: str, patch: ZoneUpdate):
+async def update_zone(id: str, patch: ZoneUpdate, _admin=Depends(require_admin)):
     p = {k: v for k, v in patch.dict().items() if v is not None}
     r = await db.delivery_zones.update_one({"id": id}, {"$set": p})
-    if r.matched_count == 0:
-        raise HTTPException(404, "Zone not found")
+    if r.matched_count == 0: raise HTTPException(404, "Not found")
     return _clean(await db.delivery_zones.find_one({"id": id}))
 
 @api.delete("/zones/{id}")
-async def delete_zone(id: str):
-    r = await db.delivery_zones.delete_one({"id": id})
-    return {"deleted": r.deleted_count}
+async def delete_zone(id: str, _admin=Depends(require_admin)):
+    r = await db.delivery_zones.delete_one({"id": id}); return {"deleted": r.deleted_count}
 
-# ---------- Couriers ----------
+# =============== Couriers ===============
 @api.get("/couriers")
 async def list_couriers():
     return await _list("couriers")
 
 @api.post("/couriers", response_model=Courier)
-async def create_courier(c: CourierIn):
-    courier = Courier(**c.dict())
-    await db.couriers.insert_one(courier.dict())
-    return courier
+async def create_courier(c: CourierIn, _admin=Depends(require_admin)):
+    courier = Courier(**c.dict()); await db.couriers.insert_one(courier.dict()); return courier
 
 @api.put("/couriers/{id}")
-async def update_courier(id: str, patch: CourierUpdate):
+async def update_courier(id: str, patch: CourierUpdate, _admin=Depends(require_admin)):
     p = {k: v for k, v in patch.dict().items() if v is not None}
     r = await db.couriers.update_one({"id": id}, {"$set": p})
-    if r.matched_count == 0:
-        raise HTTPException(404, "Courier not found")
+    if r.matched_count == 0: raise HTTPException(404, "Not found")
     return _clean(await db.couriers.find_one({"id": id}))
 
 @api.delete("/couriers/{id}")
-async def delete_courier(id: str):
-    r = await db.couriers.delete_one({"id": id})
-    return {"deleted": r.deleted_count}
+async def delete_courier(id: str, _admin=Depends(require_admin)):
+    r = await db.couriers.delete_one({"id": id}); return {"deleted": r.deleted_count}
 
-# ---------- Customers ----------
+# =============== Customers ===============
 @api.get("/customers")
-async def list_customers():
+async def list_customers(_admin=Depends(require_admin)):
     return await _list("customers")
 
 @api.delete("/customers/{id}")
-async def delete_customer(id: str):
-    r = await db.customers.delete_one({"id": id})
-    return {"deleted": r.deleted_count}
+async def delete_customer(id: str, _admin=Depends(require_admin)):
+    r = await db.customers.delete_one({"id": id}); return {"deleted": r.deleted_count}
 
-# ---------- Inventory ----------
+# =============== Inventory ===============
 @api.get("/inventory")
-async def list_inventory():
+async def list_inventory(_admin=Depends(require_admin)):
     return await _list("inventory")
 
 @api.post("/inventory", response_model=InventoryItem)
-async def create_inv(i: InventoryIn):
-    item = InventoryItem(**i.dict())
-    await db.inventory.insert_one(item.dict())
-    return item
+async def create_inv(i: InventoryIn, _admin=Depends(require_admin)):
+    item = InventoryItem(**i.dict()); await db.inventory.insert_one(item.dict()); return item
 
 @api.put("/inventory/{id}")
-async def update_inv(id: str, patch: InventoryUpdate):
+async def update_inv(id: str, patch: InventoryUpdate, _admin=Depends(require_admin)):
     p = {k: v for k, v in patch.dict().items() if v is not None}
     r = await db.inventory.update_one({"id": id}, {"$set": p})
-    if r.matched_count == 0:
-        raise HTTPException(404, "Item not found")
+    if r.matched_count == 0: raise HTTPException(404, "Not found")
     return _clean(await db.inventory.find_one({"id": id}))
 
 @api.delete("/inventory/{id}")
-async def delete_inv(id: str):
-    r = await db.inventory.delete_one({"id": id})
-    return {"deleted": r.deleted_count}
+async def delete_inv(id: str, _admin=Depends(require_admin)):
+    r = await db.inventory.delete_one({"id": id}); return {"deleted": r.deleted_count}
 
-# ---------- Orders ----------
+# =============== Coupons ===============
+@api.get("/coupons")
+async def list_coupons():
+    return await _list("coupons")
+
+@api.post("/coupons", response_model=Coupon)
+async def create_coupon(c: CouponIn, _admin=Depends(require_admin)):
+    coupon = Coupon(**c.dict()); await db.coupons.insert_one(coupon.dict()); return coupon
+
+@api.put("/coupons/{id}")
+async def update_coupon(id: str, patch: CouponUpdate, _admin=Depends(require_admin)):
+    p = {k: v for k, v in patch.dict().items() if v is not None}
+    r = await db.coupons.update_one({"id": id}, {"$set": p})
+    if r.matched_count == 0: raise HTTPException(404, "Not found")
+    return _clean(await db.coupons.find_one({"id": id}))
+
+@api.delete("/coupons/{id}")
+async def delete_coupon(id: str, _admin=Depends(require_admin)):
+    r = await db.coupons.delete_one({"id": id}); return {"deleted": r.deleted_count}
+
+@api.post("/coupons/validate")
+async def validate_coupon(payload: Dict[str, Any]):
+    code = (payload.get('code') or '').strip().upper()
+    if not code:
+        raise HTTPException(400, "Kód szükséges")
+    c = await db.coupons.find_one({"code": code, "active": True})
+    if not c: raise HTTPException(404, "Érvénytelen kupon")
+    return _clean(c)
+
+# =============== Orders ===============
 async def _next_order_id():
     year = datetime.now(timezone.utc).year
     count = await db.orders.count_documents({})
     return f"ORD-{year}-{str(count + 125).zfill(4)}"
 
 @api.get("/orders")
-async def list_orders():
-    docs = [_clean(d) async for d in db.orders.find({}).sort("createdAt", -1)]
-    return docs
+async def list_orders(_admin=Depends(require_admin)):
+    return [_clean(d) async for d in db.orders.find({}).sort("createdAt", -1)]
+
+@api.get("/orders/mine")
+async def my_orders(user=Depends(get_current_user)):
+    return [_clean(d) async for d in db.orders.find({"userId": user['id']}).sort("createdAt", -1)]
 
 @api.post("/orders")
-async def create_order(o: OrderIn):
+async def create_order(o: OrderIn, user=Depends(get_current_user)):
+    # Only enforce min-order for customer-submitted online orders (not POS/admin)
+    if user.get('role') != 'admin' and o.type == 'delivery' and o.subtotal < 2500 and o.channel == 'house':
+        raise HTTPException(400, "A minimum rendelési összeg 2500 Ft (szállításnál)")
     oid = await _next_order_id()
-    order = Order(
-        **o.dict(),
-        id=oid,
-        status="new",
-        courierId=None,
-        createdAt=datetime.now(timezone.utc).isoformat(),
-    )
-    await db.orders.insert_one(order.dict())
-    # Upsert customer
+    doc = Order(**o.dict(), id=oid, status="new", courierId=None,
+                createdAt=datetime.now(timezone.utc).isoformat(),
+                userId=user['id']).dict()
+    await db.orders.insert_one(doc)
+    # Upsert customer (by phone)
     existing = await db.customers.find_one({"phone": o.phone})
     if existing:
         await db.customers.update_one(
             {"phone": o.phone},
             {"$set": {"name": o.customerName, "zip": o.zip, "city": o.city, "street": o.street, "floor": o.floor},
-             "$inc": {"orderCount": 1}},
-        )
+             "$inc": {"orderCount": 1}})
     else:
         cust = Customer(name=o.customerName, phone=o.phone, zip=o.zip, city=o.city, street=o.street, floor=o.floor, orderCount=1)
         await db.customers.insert_one(cust.dict())
-    return order
+    return _clean(doc)
 
 @api.put("/orders/{id}")
-async def update_order(id: str, patch: OrderUpdate):
+async def update_order(id: str, patch: OrderUpdate, _admin=Depends(require_admin)):
     p = {k: v for k, v in patch.dict().items() if v is not None}
-    if not p:
-        raise HTTPException(400, "Empty update")
+    if not p: raise HTTPException(400, "Empty update")
     r = await db.orders.update_one({"id": id}, {"$set": p})
-    if r.matched_count == 0:
-        raise HTTPException(404, "Order not found")
+    if r.matched_count == 0: raise HTTPException(404, "Not found")
     return _clean(await db.orders.find_one({"id": id}))
 
 @api.delete("/orders/{id}")
-async def delete_order(id: str):
-    r = await db.orders.delete_one({"id": id})
-    return {"deleted": r.deleted_count}
+async def delete_order(id: str, _admin=Depends(require_admin)):
+    r = await db.orders.delete_one({"id": id}); return {"deleted": r.deleted_count}
 
-# ---------- Seed ----------
+# =============== Reports (Day close / Courier close) ===============
+def _sod(dt: datetime) -> datetime:
+    return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+@api.get('/reports/today')
+async def report_today(_admin=Depends(require_admin)):
+    now = datetime.now(timezone.utc)
+    start = _sod(now).isoformat()
+    docs = [d async for d in db.orders.find({"createdAt": {"$gte": start}, "status": {"$ne": "cancelled"}})]
+    revenue = sum(d.get('total', 0) for d in docs)
+    by_payment = {}
+    by_channel = {}
+    by_courier = {}
+    couriers = {c['id']: c['name'] async for c in db.couriers.find({})}
+    for d in docs:
+        by_payment[d.get('payment', 'cash')] = by_payment.get(d.get('payment', 'cash'), 0) + d.get('total', 0)
+        by_channel[d.get('channel', 'house')] = by_channel.get(d.get('channel', 'house'), 0) + d.get('total', 0)
+        cid = d.get('courierId')
+        if cid:
+            name = couriers.get(cid, 'Ismeretlen')
+            by_courier.setdefault(cid, {"name": name, "orders": 0, "revenue": 0})
+            by_courier[cid]["orders"] += 1
+            by_courier[cid]["revenue"] += d.get('total', 0)
+    return {
+        "date": now.date().isoformat(),
+        "orders": len(docs),
+        "revenue": revenue,
+        "byPayment": by_payment,
+        "byChannel": by_channel,
+        "byCourier": list(by_courier.values()),
+    }
+
+@api.post('/reports/close-day')
+async def close_day(_admin=Depends(require_admin)):
+    r = await report_today()  # type: ignore
+    entry = {"id": str(uuid.uuid4()), **r, "closedAt": datetime.now(timezone.utc).isoformat()}
+    await db.day_closes.insert_one(entry)
+    entry.pop('_id', None)
+    return entry
+
+@api.get('/reports/history')
+async def report_history(_admin=Depends(require_admin)):
+    return [_clean(d) async for d in db.day_closes.find({}).sort('closedAt', -1)]
+
+@api.get('/reports/courier/{courier_id}')
+async def courier_report(courier_id: str, _admin=Depends(require_admin)):
+    now = datetime.now(timezone.utc)
+    start = _sod(now).isoformat()
+    docs = [d async for d in db.orders.find({"courierId": courier_id, "createdAt": {"$gte": start}})]
+    delivered = [d for d in docs if d.get('status') == 'delivered']
+    revenue = sum(d.get('total', 0) for d in delivered)
+    cash = sum(d.get('total', 0) for d in delivered if d.get('payment') == 'cash')
+    card = sum(d.get('total', 0) for d in delivered if d.get('payment') == 'card')
+    online = sum(d.get('total', 0) for d in delivered if d.get('payment') == 'online')
+    courier = await db.couriers.find_one({"id": courier_id})
+    return {
+        "courierId": courier_id,
+        "courierName": courier.get('name') if courier else None,
+        "orders": len(delivered),
+        "revenue": revenue,
+        "cash": cash, "card": card, "online": online,
+    }
+
+# =============== Seed ===============
 SEED_MENU = [
     ("pizzak", "Margherita", "Paradicsomszósz, mozzarella", 2190),
     ("pizzak", "Sonkás", "Paradicsomszósz, sonka, mozzarella", 2390),
@@ -339,50 +475,34 @@ SEED_MENU = [
     ("italok", "Ásványvíz 0,5l", "", 390),
     ("italok", "Fanta 0,5l", "", 590),
 ]
-
-SEED_ZONES = [
-    ("3734", "Szuhogy", 500),
-    ("3733", "Rudabánya", 700),
-    ("3600", "Ózd", 900),
-    ("3700", "Kazincbarcika", 1200),
-    ("3780", "Edelény", 1000),
-]
-
-SEED_COURIERS = [
-    ("Dávid", "+36 30 111 2222", True),
-    ("Márk", "+36 30 333 4444", True),
-    ("Tamás", "+36 30 555 6666", False),
-]
-
-SEED_INVENTORY = [
-    ("Mozzarella sajt", "kg", 12, 5),
-    ("Paradicsomszósz", "l", 8, 3),
-    ("Pizza tészta", "db", 45, 20),
-    ("Csirkemell", "kg", 6, 4),
-    ("Marhahús", "kg", 3, 5),
-    ("Hamburger zsemle", "db", 30, 15),
-    ("Coca-Cola 0,5l", "db", 24, 12),
-]
+SEED_ZONES = [("3734","Szuhogy",500),("3733","Rudabánya",700),("3600","Ózd",900),("3700","Kazincbarcika",1200),("3780","Edelény",1000)]
+SEED_COURIERS = [("Dávid","+36 30 111 2222", True),("Márk","+36 30 333 4444", True),("Tamás","+36 30 555 6666", False)]
+SEED_INVENTORY = [("Mozzarella sajt","kg",12,5),("Paradicsomszósz","l",8,3),("Pizza tészta","db",45,20),("Csirkemell","kg",6,4),("Marhahús","kg",3,5),("Hamburger zsemle","db",30,15),("Coca-Cola 0,5l","db",24,12)]
 
 @api.post("/seed")
 async def seed():
     result = {}
     if await db.menu_items.count_documents({}) == 0:
-        docs = [MenuItem(category=c, name=n, description=d, price=p).dict() for c, n, d, p in SEED_MENU]
-        await db.menu_items.insert_many(docs)
-        result["menu"] = len(docs)
+        docs = [MenuItem(category=c, name=n, description=d, price=p, priceFoodora=int(p*1.25), priceFalatozz=int(p*1.20)).dict() for c, n, d, p in SEED_MENU]
+        await db.menu_items.insert_many(docs); result["menu"] = len(docs)
     if await db.delivery_zones.count_documents({}) == 0:
         docs = [Zone(zip=z, city=c, fee=f).dict() for z, c, f in SEED_ZONES]
-        await db.delivery_zones.insert_many(docs)
-        result["zones"] = len(docs)
+        await db.delivery_zones.insert_many(docs); result["zones"] = len(docs)
     if await db.couriers.count_documents({}) == 0:
         docs = [Courier(name=n, phone=p, active=a).dict() for n, p, a in SEED_COURIERS]
-        await db.couriers.insert_many(docs)
-        result["couriers"] = len(docs)
+        await db.couriers.insert_many(docs); result["couriers"] = len(docs)
     if await db.inventory.count_documents({}) == 0:
         docs = [InventoryItem(name=n, unit=u, stock=s, minStock=m).dict() for n, u, s, m in SEED_INVENTORY]
-        await db.inventory.insert_many(docs)
-        result["inventory"] = len(docs)
+        await db.inventory.insert_many(docs); result["inventory"] = len(docs)
+    # Seed default admin
+    if await db.users.count_documents({"role": "admin"}) == 0:
+        uid = str(uuid.uuid4())
+        await db.users.insert_one({
+            "id": uid, "email": "admin@zavo.hu", "name": "Sári Roland", "phone": "",
+            "role": "admin", "password_hash": bcrypt.hash("admin123"),
+            "createdAt": datetime.now(timezone.utc).isoformat(),
+        })
+        result["admin"] = "admin@zavo.hu / admin123"
     return {"seeded": result}
 
 @api.get("/")
@@ -392,15 +512,19 @@ async def root():
 app.include_router(api)
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+@app.on_event("startup")
+async def _startup_seed():
+    try:
+        if await db.users.count_documents({"role": "admin"}) == 0:
+            await seed()
+    except Exception as e:
+        logger.error(f"Startup seed failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():

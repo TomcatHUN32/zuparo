@@ -1,20 +1,28 @@
 import React, { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useData } from '../../context/DataContext';
+import { useCart } from '../../context/CartContext';
 import { CATEGORIES, formatFt, LOGO_URL } from '../../mock/mockData';
-import { Search, Plus, Heart } from 'lucide-react';
+import { Search, Plus, Heart, ShoppingCart } from 'lucide-react';
 import { toast } from 'sonner';
+
+const MIN_ORDER = 2500;
 
 const MenuPage = () => {
   const { menu } = useData();
+  const { add, count, subtotal } = useCart();
+  const nav = useNavigate();
   const [cat, setCat] = useState('pizzak');
   const [q, setQ] = useState('');
   const items = menu.filter((m) => m.category === cat && (q ? (m.name + ' ' + m.description).toLowerCase().includes(q.toLowerCase()) : true));
+
   return (
-    <div className="max-w-7xl mx-auto px-6 py-10">
+    <div className="max-w-7xl mx-auto px-6 py-10 pb-32">
       <div className="flex items-end justify-between mb-6">
         <div>
           <div className="font-script text-2xl text-[#d4af37]">Mindig jó falat</div>
           <h1 className="font-display text-4xl font-black text-white">ÉTLAP</h1>
+          <div className="text-xs text-neutral-400 mt-1">Minimum rendelési összeg: <span className="text-[#d4af37] font-semibold">{formatFt(MIN_ORDER)}</span></div>
         </div>
         <div className="relative w-80">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
@@ -38,13 +46,24 @@ const MenuPage = () => {
               <div className="text-xs text-neutral-400 mt-1 line-clamp-2">{m.description}</div>
               <div className="mt-3 flex items-center justify-between">
                 <div className="gold-text-gradient font-extrabold">{formatFt(m.price)}</div>
-                <button onClick={() => toast.success(`${m.name} a kosárba került`)} className="h-9 px-3 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold inline-flex items-center gap-1"><Plus size={14} /> Kosárba</button>
+                <button onClick={() => { add({ id: m.id, name: m.name, price: m.price }); toast.success(`${m.name} kosárba téve`); }} className="h-9 px-3 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold inline-flex items-center gap-1"><Plus size={14} /> Kosárba</button>
               </div>
             </div>
           </div>
         ))}
         {items.length === 0 && <div className="col-span-full text-center text-neutral-500 py-16">Nincs találat.</div>}
       </div>
+
+      {count > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-neutral-900 border border-[#d4af37] rounded-full shadow-2xl px-3 py-2 flex items-center gap-3">
+          <div className="h-10 w-10 rounded-full bg-[#d4af37]/10 text-[#d4af37] flex items-center justify-center"><ShoppingCart size={18} /></div>
+          <div className="pr-2">
+            <div className="text-xs text-neutral-400">Kosár ({count})</div>
+            <div className="gold-text-gradient font-extrabold">{formatFt(subtotal)}</div>
+          </div>
+          <button onClick={() => nav('/rendeles')} className="gold-gradient text-black font-bold px-5 py-2.5 rounded-full">Tovább →</button>
+        </div>
+      )}
     </div>
   );
 };

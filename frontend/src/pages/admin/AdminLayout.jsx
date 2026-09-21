@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { LayoutList, PlusCircle, Bike, Users, UtensilsCrossed, Boxes, BarChart3, Settings as SettingsIcon, Search } from 'lucide-react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { LayoutList, PlusCircle, Bike, Users, UtensilsCrossed, Boxes, BarChart3, Settings as SettingsIcon, Search, LogOut } from 'lucide-react';
 import { LOGO_URL } from '../../mock/mockData';
+import { useAuth } from '../../context/AuthContext';
 
 const NAV = [
   { to: '/admin/rendelesek', label: 'Rendelések', icon: LayoutList },
@@ -19,14 +20,16 @@ const PAGE_META = {
   '/admin/uj-rendeles': { title: 'Telefonos rendelés felvétele', subtitle: 'Vedd fel a vendég adatait, add hozzá a termékeket, majd zárd le a rendelést.' },
   '/admin/futarok': { title: 'Futárok', subtitle: 'Kezeld a futárok listáját és oszd szét a címeket.' },
   '/admin/vevok': { title: 'Vevők', subtitle: 'Visszatérő vendégeid adatai egy helyen.' },
-  '/admin/etlap': { title: 'Étlap', subtitle: 'Adj hozzá, szerkessz vagy törölj termékeket kategóriákkal.' },
+  '/admin/etlap': { title: 'Étlap', subtitle: 'Termékek, házi / Foodora / Falatozz árakkal.' },
   '/admin/keszlet': { title: 'Készlet', subtitle: 'Kövesd nyomon az alapanyagok mennyiségét.' },
   '/admin/statisztika': { title: 'Statisztika', subtitle: 'Áttekintő számok az üzlet teljesítményéről.' },
-  '/admin/beallitasok': { title: 'Beállítások', subtitle: 'Szállítási zónák, díjak és általános beállítások.' },
+  '/admin/beallitasok': { title: 'Beállítások', subtitle: 'Szállítási területek, futárok, kuponkódok, napi és futár zárás.' },
 };
 
 const AdminLayout = () => {
   const location = useLocation();
+  const nav = useNavigate();
+  const { user, logout } = useAuth();
   const meta = PAGE_META[location.pathname] || { title: 'ZAVO Admin', subtitle: '' };
   const [now, setNow] = useState(new Date());
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
@@ -35,6 +38,9 @@ const AdminLayout = () => {
   const timeStr = now.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
   const weekday = now.toLocaleDateString('hu-HU', { weekday: 'long' });
   const wCap = weekday.charAt(0).toUpperCase() + weekday.slice(1);
+  const initial = (user?.name || 'A').charAt(0).toUpperCase();
+
+  const doLogout = () => { logout(); nav('/belepes', { replace: true }); };
 
   return (
     <div className="min-h-screen flex bg-neutral-50">
@@ -60,7 +66,7 @@ const AdminLayout = () => {
           <div className="flex items-center gap-2 text-xs text-neutral-300">
             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" /> Rendszer online
           </div>
-          <div className="text-[10px] text-neutral-500 mt-2">v1.0.0</div>
+          <div className="text-[10px] text-neutral-500 mt-2">v1.1.0</div>
         </div>
       </aside>
 
@@ -80,11 +86,12 @@ const AdminLayout = () => {
               <input placeholder="Vendég keresése (név, telefonszám)..." className="w-80 pl-9 pr-3 py-2 rounded-full bg-neutral-100 border border-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
             </div>
             <div className="flex items-center gap-3 pl-4 border-l border-neutral-200">
-              <div className="h-10 w-10 rounded-full bg-neutral-900 text-white flex items-center justify-center font-semibold">R</div>
+              <div className="h-10 w-10 rounded-full bg-neutral-900 text-white flex items-center justify-center font-semibold">{initial}</div>
               <div>
-                <div className="text-sm font-semibold text-neutral-900">Sári Roland</div>
+                <div className="text-sm font-semibold text-neutral-900">{user?.name}</div>
                 <div className="text-xs text-neutral-500">Üzletvezető</div>
               </div>
+              <button onClick={doLogout} title="Kilépés" className="h-10 w-10 rounded-full border border-neutral-200 text-neutral-500 hover:text-rose-500 hover:border-rose-200 inline-flex items-center justify-center"><LogOut size={16} /></button>
             </div>
           </div>
         </header>

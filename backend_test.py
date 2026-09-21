@@ -1,446 +1,433 @@
 #!/usr/bin/env python3
 """
-ZAVO Backend API Test Suite
-Tests all backend endpoints at REACT_APP_BACKEND_URL/api
+ZAVO v1.1 Backend Test Suite
+Tests auth, role protection, coupons, orders, and reports
 """
-
 import requests
 import json
-import re
+import sys
 from datetime import datetime
 
-# Backend URL from frontend/.env
-BASE_URL = "https://order-app-65.preview.emergentagent.com/api"
+# Load backend URL from frontend/.env
+with open('/app/frontend/.env') as f:
+    for line in f:
+        if line.startswith('REACT_APP_BACKEND_URL='):
+            BASE_URL = line.split('=', 1)[1].strip() + '/api'
+            break
 
-class Colors:
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    END = '\033[0m'
+print(f"Testing backend at: {BASE_URL}\n")
 
-def log_test(name, passed, details=""):
-    status = f"{Colors.GREEN}✓ PASS{Colors.END}" if passed else f"{Colors.RED}✗ FAIL{Colors.END}"
-    print(f"{status} - {name}")
-    if details:
-        print(f"  {details}")
-    return passed
+# Test state
+admin_token = None
+customer_token = None
+customer_user = None
+coupon_percent_id = None
+coupon_amount_id = None
+test_order_id = None
+courier_id = None
 
-def test_seed_idempotent():
-    """Test 1: POST /api/seed twice - second should return empty seeded map"""
-    print(f"\n{Colors.BLUE}=== Test 1: Seed Endpoint (Idempotent) ==={Colors.END}")
-    
-    # First seed
-    r1 = requests.post(f"{BASE_URL}/seed")
-    if r1.status_code != 200:
-        return log_test("Seed endpoint first call", False, f"Status: {r1.status_code}, Response: {r1.text}")
-    
-    data1 = r1.json()
-    log_test("Seed endpoint first call", True, f"Seeded: {data1}")
-    
-    # Second seed (should be empty)
-    r2 = requests.post(f"{BASE_URL}/seed")
-    if r2.status_code != 200:
-        return log_test("Seed endpoint second call", False, f"Status: {r2.status_code}, Response: {r2.text}")
-    
-    data2 = r2.json()
-    is_empty = data2.get("seeded", {}) == {}
-    return log_test("Seed idempotency", is_empty, f"Second seed returned: {data2}")
-
-def test_list_endpoints():
-    """Test 2: GET /api/menu, /api/zones, /api/couriers, /api/inventory - all return non-empty"""
-    print(f"\n{Colors.BLUE}=== Test 2: List Endpoints (Non-Empty After Seed) ==={Colors.END}")
-    
-    results = []
-    endpoints = ["menu", "zones", "couriers", "inventory"]
-    
-    for endpoint in endpoints:
-        r = requests.get(f"{BASE_URL}/{endpoint}")
-        if r.status_code != 200:
-            results.append(log_test(f"GET /{endpoint}", False, f"Status: {r.status_code}"))
-            continue
-        
-        data = r.json()
-        is_non_empty = isinstance(data, list) and len(data) > 0
-        results.append(log_test(f"GET /{endpoint} non-empty", is_non_empty, f"Count: {len(data)}"))
-    
-    return all(results)
-
-def test_menu_crud():
-    """Test 3: Menu CRUD - POST, PUT, DELETE"""
-    print(f"\n{Colors.BLUE}=== Test 3: Menu CRUD ==={Colors.END}")
-    
-    results = []
-    
-    # CREATE
-    new_item = {
-        "category": "pizzak",
-        "name": "Test Pizza",
-        "description": "Teszt pizza leírás",
-        "price": 2990
-    }
-    r = requests.post(f"{BASE_URL}/menu", json=new_item)
-    if r.status_code != 200:
-        results.append(log_test("POST /menu", False, f"Status: {r.status_code}, Response: {r.text}"))
+def test(name, fn):
+    """Run a test and report result"""
+    try:
+        fn()
+        print(f"✅ {name}")
+        return True
+    except AssertionError as e:
+        print(f"❌ {name}: {e}")
         return False
-    
-    created = r.json()
-    item_id = created.get("id")
-    results.append(log_test("POST /menu", True, f"Created item with id: {item_id}"))
-    
-    # UPDATE
-    update_data = {"price": 3190, "description": "Frissített leírás"}
-    r = requests.put(f"{BASE_URL}/menu/{item_id}", json=update_data)
-    if r.status_code != 200:
-        results.append(log_test("PUT /menu/{id}", False, f"Status: {r.status_code}, Response: {r.text}"))
-    else:
-        updated = r.json()
-        price_ok = updated.get("price") == 3190
-        desc_ok = updated.get("description") == "Frissített leírás"
-        results.append(log_test("PUT /menu/{id}", price_ok and desc_ok, f"Updated: {updated}"))
-    
-    # DELETE
-    r = requests.delete(f"{BASE_URL}/menu/{item_id}")
-    if r.status_code != 200:
-        results.append(log_test("DELETE /menu/{id}", False, f"Status: {r.status_code}"))
-    else:
-        deleted = r.json()
-        results.append(log_test("DELETE /menu/{id}", deleted.get("deleted") == 1, f"Deleted count: {deleted.get('deleted')}"))
-    
-    return all(results)
-
-def test_zones_crud():
-    """Test 4: Zones CRUD - POST, PUT, DELETE"""
-    print(f"\n{Colors.BLUE}=== Test 4: Zones CRUD ==={Colors.END}")
-    
-    results = []
-    
-    # CREATE
-    new_zone = {
-        "zip": "1234",
-        "city": "Teszt Város",
-        "fee": 800
-    }
-    r = requests.post(f"{BASE_URL}/zones", json=new_zone)
-    if r.status_code != 200:
-        results.append(log_test("POST /zones", False, f"Status: {r.status_code}, Response: {r.text}"))
+    except Exception as e:
+        print(f"❌ {name}: Unexpected error: {e}")
         return False
-    
-    created = r.json()
-    zone_id = created.get("id")
-    results.append(log_test("POST /zones", True, f"Created zone with id: {zone_id}"))
-    
-    # UPDATE
-    update_data = {"fee": 950}
-    r = requests.put(f"{BASE_URL}/zones/{zone_id}", json=update_data)
-    if r.status_code != 200:
-        results.append(log_test("PUT /zones/{id}", False, f"Status: {r.status_code}, Response: {r.text}"))
-    else:
-        updated = r.json()
-        fee_ok = updated.get("fee") == 950
-        results.append(log_test("PUT /zones/{id}", fee_ok, f"Updated fee: {updated.get('fee')}"))
-    
-    # DELETE
-    r = requests.delete(f"{BASE_URL}/zones/{zone_id}")
-    if r.status_code != 200:
-        results.append(log_test("DELETE /zones/{id}", False, f"Status: {r.status_code}"))
-    else:
-        deleted = r.json()
-        results.append(log_test("DELETE /zones/{id}", deleted.get("deleted") == 1, f"Deleted count: {deleted.get('deleted')}"))
-    
-    return all(results)
 
-def test_couriers_crud():
-    """Test 5: Couriers CRUD - POST, PUT, DELETE"""
-    print(f"\n{Colors.BLUE}=== Test 5: Couriers CRUD ==={Colors.END}")
-    
-    results = []
-    
-    # CREATE
-    new_courier = {
-        "name": "Teszt Futár",
-        "phone": "+36 30 999 8888",
-        "active": True
-    }
-    r = requests.post(f"{BASE_URL}/couriers", json=new_courier)
-    if r.status_code != 200:
-        results.append(log_test("POST /couriers", False, f"Status: {r.status_code}, Response: {r.text}"))
-        return False
-    
-    created = r.json()
-    courier_id = created.get("id")
-    results.append(log_test("POST /couriers", True, f"Created courier with id: {courier_id}"))
-    
-    # UPDATE
-    update_data = {"active": False, "phone": "+36 30 999 7777"}
-    r = requests.put(f"{BASE_URL}/couriers/{courier_id}", json=update_data)
-    if r.status_code != 200:
-        results.append(log_test("PUT /couriers/{id}", False, f"Status: {r.status_code}, Response: {r.text}"))
-    else:
-        updated = r.json()
-        active_ok = updated.get("active") == False
-        phone_ok = updated.get("phone") == "+36 30 999 7777"
-        results.append(log_test("PUT /couriers/{id}", active_ok and phone_ok, f"Updated: {updated}"))
-    
-    # DELETE
-    r = requests.delete(f"{BASE_URL}/couriers/{courier_id}")
-    if r.status_code != 200:
-        results.append(log_test("DELETE /couriers/{id}", False, f"Status: {r.status_code}"))
-    else:
-        deleted = r.json()
-        results.append(log_test("DELETE /couriers/{id}", deleted.get("deleted") == 1, f"Deleted count: {deleted.get('deleted')}"))
-    
-    return all(results)
+def assert_status(resp, expected, msg=""):
+    """Assert response status code"""
+    if resp.status_code != expected:
+        raise AssertionError(f"Expected {expected}, got {resp.status_code}. {msg} Response: {resp.text[:200]}")
 
-def test_inventory_crud():
-    """Test 6: Inventory CRUD - POST, PUT, DELETE"""
-    print(f"\n{Colors.BLUE}=== Test 6: Inventory CRUD ==={Colors.END}")
-    
-    results = []
-    
-    # CREATE
-    new_item = {
-        "name": "Teszt Alapanyag",
-        "unit": "kg",
-        "stock": 15.5,
-        "minStock": 5.0
-    }
-    r = requests.post(f"{BASE_URL}/inventory", json=new_item)
-    if r.status_code != 200:
-        results.append(log_test("POST /inventory", False, f"Status: {r.status_code}, Response: {r.text}"))
-        return False
-    
-    created = r.json()
-    item_id = created.get("id")
-    results.append(log_test("POST /inventory", True, f"Created item with id: {item_id}"))
-    
-    # UPDATE
-    update_data = {"stock": 20.0, "minStock": 8.0}
-    r = requests.put(f"{BASE_URL}/inventory/{item_id}", json=update_data)
-    if r.status_code != 200:
-        results.append(log_test("PUT /inventory/{id}", False, f"Status: {r.status_code}, Response: {r.text}"))
-    else:
-        updated = r.json()
-        stock_ok = updated.get("stock") == 20.0
-        min_ok = updated.get("minStock") == 8.0
-        results.append(log_test("PUT /inventory/{id}", stock_ok and min_ok, f"Updated: {updated}"))
-    
-    # DELETE
-    r = requests.delete(f"{BASE_URL}/inventory/{item_id}")
-    if r.status_code != 200:
-        results.append(log_test("DELETE /inventory/{id}", False, f"Status: {r.status_code}"))
-    else:
-        deleted = r.json()
-        results.append(log_test("DELETE /inventory/{id}", deleted.get("deleted") == 1, f"Deleted count: {deleted.get('deleted')}"))
-    
-    return all(results)
+def assert_in(key, data, msg=""):
+    """Assert key exists in data"""
+    if key not in data:
+        raise AssertionError(f"Key '{key}' not found in response. {msg}")
 
-def test_orders_lifecycle():
-    """Test 7: Orders lifecycle - POST, customer upsert, PUT, DELETE"""
-    print(f"\n{Colors.BLUE}=== Test 7: Orders Lifecycle ==={Colors.END}")
-    
-    results = []
-    test_phone = "+36 30 123 4567"
-    
-    # Get a courier ID for assignment later
-    r = requests.get(f"{BASE_URL}/couriers")
-    couriers = r.json()
-    courier_id = couriers[0]["id"] if couriers else None
-    
-    # CREATE ORDER 1
-    order1 = {
+# ============= A) AUTH TESTS =============
+print("=" * 60)
+print("A) AUTH FLOW TESTS")
+print("=" * 60)
+
+def test_register():
+    """Register a new customer"""
+    global customer_token, customer_user
+    email = f"test_{datetime.now().timestamp()}@example.com"
+    resp = requests.post(f"{BASE_URL}/auth/register", json={
+        "email": email,
+        "password": "test123",
+        "name": "Kovács János",
+        "phone": "+36 30 123 4567"
+    })
+    assert_status(resp, 200, "Register should return 200")
+    data = resp.json()
+    assert_in('token', data, "Register should return token")
+    assert_in('user', data, "Register should return user")
+    assert data['user']['role'] == 'customer', f"Role should be 'customer', got {data['user']['role']}"
+    assert data['user']['email'] == email, f"Email mismatch"
+    customer_token = data['token']
+    customer_user = data['user']
+
+def test_register_duplicate():
+    """Register with duplicate email should fail"""
+    resp = requests.post(f"{BASE_URL}/auth/register", json={
+        "email": customer_user['email'],
+        "password": "test123",
+        "name": "Test",
+        "phone": ""
+    })
+    assert_status(resp, 400, "Duplicate email should return 400")
+
+def test_admin_login():
+    """Login as admin"""
+    global admin_token
+    resp = requests.post(f"{BASE_URL}/auth/login", json={
+        "email": "admin@zavo.hu",
+        "password": "admin123"
+    })
+    assert_status(resp, 200, "Admin login should return 200")
+    data = resp.json()
+    assert_in('token', data, "Login should return token")
+    assert_in('user', data, "Login should return user")
+    assert data['user']['role'] == 'admin', f"Admin role expected, got {data['user']['role']}"
+    admin_token = data['token']
+
+def test_auth_me_customer():
+    """GET /auth/me with customer token"""
+    resp = requests.get(f"{BASE_URL}/auth/me", headers={"Authorization": f"Bearer {customer_token}"})
+    assert_status(resp, 200, "/auth/me should return 200")
+    data = resp.json()
+    assert data['id'] == customer_user['id'], "User ID mismatch"
+    assert data['role'] == 'customer', "Role should be customer"
+
+def test_auth_me_admin():
+    """GET /auth/me with admin token"""
+    resp = requests.get(f"{BASE_URL}/auth/me", headers={"Authorization": f"Bearer {admin_token}"})
+    assert_status(resp, 200, "/auth/me should return 200")
+    data = resp.json()
+    assert data['role'] == 'admin', "Role should be admin"
+
+def test_auth_me_no_token():
+    """GET /auth/me without token should fail"""
+    resp = requests.get(f"{BASE_URL}/auth/me")
+    assert_status(resp, 401, "No token should return 401")
+
+test("Register new customer", test_register)
+test("Register duplicate email → 400", test_register_duplicate)
+test("Admin login", test_admin_login)
+test("GET /auth/me with customer token", test_auth_me_customer)
+test("GET /auth/me with admin token", test_auth_me_admin)
+test("GET /auth/me without token → 401", test_auth_me_no_token)
+
+# ============= B) ROLE PROTECTION TESTS =============
+print("\n" + "=" * 60)
+print("B) ROLE PROTECTION TESTS")
+print("=" * 60)
+
+def test_public_reads():
+    """Public endpoints should work without auth"""
+    endpoints = ['/menu', '/zones', '/couriers', '/coupons']
+    for ep in endpoints:
+        resp = requests.get(f"{BASE_URL}{ep}")
+        assert_status(resp, 200, f"Public GET {ep} should work without auth")
+
+def test_admin_endpoints_no_auth():
+    """Admin endpoints should return 401 without auth"""
+    tests = [
+        ('POST', '/menu', {"category": "test", "name": "test", "price": 1000}),
+        ('POST', '/zones', {"zip": "1234", "city": "Test", "fee": 500}),
+        ('POST', '/couriers', {"name": "Test"}),
+        ('POST', '/inventory', {"name": "Test", "unit": "kg", "stock": 0, "minStock": 0}),
+        ('POST', '/coupons', {"code": "TEST", "kind": "percent", "value": 10}),
+        ('GET', '/customers', None),
+        ('GET', '/inventory', None),
+        ('GET', '/orders', None),
+    ]
+    for method, endpoint, payload in tests:
+        if method == 'GET':
+            resp = requests.get(f"{BASE_URL}{endpoint}")
+        else:
+            resp = requests.post(f"{BASE_URL}{endpoint}", json=payload)
+        assert_status(resp, 401, f"{method} {endpoint} should return 401 without auth")
+
+def test_admin_endpoints_customer_token():
+    """Admin endpoints should return 403 with customer token"""
+    headers = {"Authorization": f"Bearer {customer_token}"}
+    tests = [
+        ('POST', '/menu', {"category": "test", "name": "test", "price": 1000}),
+        ('POST', '/zones', {"zip": "1234", "city": "Test", "fee": 500}),
+        ('POST', '/couriers', {"name": "Test"}),
+        ('POST', '/inventory', {"name": "Test", "unit": "kg", "stock": 0, "minStock": 0}),
+        ('POST', '/coupons', {"code": "TEST", "kind": "percent", "value": 10}),
+        ('GET', '/customers', None),
+        ('GET', '/inventory', None),
+        ('GET', '/orders', None),
+    ]
+    for method, endpoint, payload in tests:
+        if method == 'GET':
+            resp = requests.get(f"{BASE_URL}{endpoint}", headers=headers)
+        else:
+            resp = requests.post(f"{BASE_URL}{endpoint}", json=payload, headers=headers)
+        assert_status(resp, 403, f"{method} {endpoint} should return 403 with customer token")
+
+def test_reports_no_auth():
+    """Reports endpoints should return 401 without auth"""
+    endpoints = ['/reports/today', '/reports/history']
+    for ep in endpoints:
+        resp = requests.get(f"{BASE_URL}{ep}")
+        assert_status(resp, 401, f"GET {ep} should return 401 without auth")
+
+def test_reports_customer_token():
+    """Reports endpoints should return 403 with customer token"""
+    headers = {"Authorization": f"Bearer {customer_token}"}
+    endpoints = ['/reports/today', '/reports/history']
+    for ep in endpoints:
+        resp = requests.get(f"{BASE_URL}{ep}", headers=headers)
+        assert_status(resp, 403, f"GET {ep} should return 403 with customer token")
+
+test("Public reads work without auth", test_public_reads)
+test("Admin endpoints → 401 without auth", test_admin_endpoints_no_auth)
+test("Admin endpoints → 403 with customer token", test_admin_endpoints_customer_token)
+test("Reports → 401 without auth", test_reports_no_auth)
+test("Reports → 403 with customer token", test_reports_customer_token)
+
+# ============= C) COUPONS TESTS =============
+print("\n" + "=" * 60)
+print("C) COUPONS TESTS")
+print("=" * 60)
+
+def test_create_percent_coupon():
+    """Create percent coupon as admin"""
+    global coupon_percent_id
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    resp = requests.post(f"{BASE_URL}/coupons", json={
+        "code": "ZAVO10",
+        "kind": "percent",
+        "value": 10
+    }, headers=headers)
+    assert_status(resp, 200, "Create coupon should return 200")
+    data = resp.json()
+    assert data['code'] == 'ZAVO10', "Code mismatch"
+    assert data['kind'] == 'percent', "Kind should be percent"
+    assert data['value'] == 10, "Value should be 10"
+    assert data['active'] == True, "Should be active by default"
+    coupon_percent_id = data['id']
+
+def test_create_amount_coupon():
+    """Create amount coupon as admin"""
+    global coupon_amount_id
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    resp = requests.post(f"{BASE_URL}/coupons", json={
+        "code": "VIP500",
+        "kind": "amount",
+        "value": 500
+    }, headers=headers)
+    assert_status(resp, 200, "Create coupon should return 200")
+    data = resp.json()
+    assert data['code'] == 'VIP500', "Code mismatch"
+    assert data['kind'] == 'amount', "Kind should be amount"
+    assert data['value'] == 500, "Value should be 500"
+    coupon_amount_id = data['id']
+
+def test_validate_active_coupon():
+    """Validate active coupon"""
+    resp = requests.post(f"{BASE_URL}/coupons/validate", json={"code": "ZAVO10"})
+    assert_status(resp, 200, "Validate should return 200 for active coupon")
+    data = resp.json()
+    assert data['code'] == 'ZAVO10', "Code mismatch"
+    assert data['active'] == True, "Should be active"
+
+def test_deactivate_coupon():
+    """Deactivate coupon and validate should fail"""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    # Deactivate
+    resp = requests.put(f"{BASE_URL}/coupons/{coupon_percent_id}", json={"active": False}, headers=headers)
+    assert_status(resp, 200, "Update coupon should return 200")
+    # Validate should now fail
+    resp = requests.post(f"{BASE_URL}/coupons/validate", json={"code": "ZAVO10"})
+    assert_status(resp, 404, "Validate should return 404 for inactive coupon")
+
+test("Create percent coupon (ZAVO10)", test_create_percent_coupon)
+test("Create amount coupon (VIP500)", test_create_amount_coupon)
+test("Validate active coupon", test_validate_active_coupon)
+test("Deactivate coupon → validate returns 404", test_deactivate_coupon)
+
+# ============= D) ORDERS TESTS =============
+print("\n" + "=" * 60)
+print("D) ORDERS WITH AUTH TESTS")
+print("=" * 60)
+
+def test_order_min_validation():
+    """Order with subtotal < 2500 for delivery+house should fail"""
+    headers = {"Authorization": f"Bearer {customer_token}"}
+    resp = requests.post(f"{BASE_URL}/orders", json={
         "customerName": "Kovács János",
-        "phone": test_phone,
-        "zip": "3734",
-        "city": "Szuhogy",
-        "street": "Fő utca 12",
-        "floor": "2. emelet",
+        "phone": "+36 30 123 4567",
+        "zip": "3600",
+        "city": "Ózd",
+        "street": "Fő utca 1",
+        "floor": "2/3",
         "type": "delivery",
         "payment": "cash",
-        "items": [
-            {"id": "1", "name": "Margherita pizza", "price": 2190, "qty": 2, "note": "Extra sajt kérem"},
-            {"id": "2", "name": "Coca-Cola 0,5l", "price": 590, "qty": 2, "note": ""}
-        ],
-        "subtotal": 5560,
+        "channel": "house",
+        "items": [{"id": "1", "name": "Test Pizza", "price": 1000, "qty": 1, "note": ""}],
+        "subtotal": 1000,
         "deliveryFee": 500,
-        "discountPct": 0,
-        "total": 6060,
-        "note": "Kérem csengessen!"
-    }
-    
-    r = requests.post(f"{BASE_URL}/orders", json=order1)
-    if r.status_code != 200:
-        results.append(log_test("POST /orders (first)", False, f"Status: {r.status_code}, Response: {r.text}"))
-        return False
-    
-    created_order = r.json()
-    order_id = created_order.get("id")
-    
-    # Verify order ID format ORD-YYYY-####
-    id_pattern = r'^ORD-\d{4}-\d{4}$'
-    id_match = re.match(id_pattern, order_id) is not None
-    results.append(log_test("Order ID format ORD-YYYY-####", id_match, f"Order ID: {order_id}"))
-    
-    # Verify status='new'
-    status_ok = created_order.get("status") == "new"
-    results.append(log_test("Order status='new'", status_ok, f"Status: {created_order.get('status')}"))
-    
-    # Verify createdAt exists
-    created_at = created_order.get("createdAt")
-    created_at_ok = created_at is not None and len(created_at) > 0
-    results.append(log_test("Order has createdAt", created_at_ok, f"createdAt: {created_at}"))
-    
-    # GET CUSTOMERS - verify customer exists with orderCount >= 1
-    r = requests.get(f"{BASE_URL}/customers")
-    if r.status_code != 200:
-        results.append(log_test("GET /customers", False, f"Status: {r.status_code}"))
-    else:
-        customers = r.json()
-        customer = next((c for c in customers if c["phone"] == test_phone), None)
-        if customer:
-            order_count_1 = customer.get("orderCount", 0)
-            results.append(log_test("Customer exists with orderCount >= 1", order_count_1 >= 1, 
-                                   f"Customer: {customer['name']}, orderCount: {order_count_1}"))
-        else:
-            results.append(log_test("Customer exists", False, "Customer not found"))
-    
-    # CREATE ORDER 2 with same phone - verify orderCount increments
-    order2 = {
+        "total": 1500
+    }, headers=headers)
+    assert_status(resp, 400, "Order with subtotal < 2500 should return 400")
+    assert "2500" in resp.text, "Error message should mention minimum order amount"
+
+def test_order_success():
+    """Order with subtotal >= 2500 should succeed"""
+    global test_order_id
+    headers = {"Authorization": f"Bearer {customer_token}"}
+    resp = requests.post(f"{BASE_URL}/orders", json={
         "customerName": "Kovács János",
-        "phone": test_phone,
-        "zip": "3734",
-        "city": "Szuhogy",
-        "street": "Fő utca 12",
-        "floor": "2. emelet",
+        "phone": "+36 30 123 4567",
+        "zip": "3600",
+        "city": "Ózd",
+        "street": "Fő utca 1",
+        "floor": "2/3",
         "type": "delivery",
-        "payment": "card",
+        "payment": "cash",
+        "channel": "house",
         "items": [
-            {"id": "3", "name": "Sonkás pizza", "price": 2390, "qty": 1, "note": ""}
+            {"id": "1", "name": "ZAVO Special Pizza", "price": 2890, "qty": 1, "note": "Extra sajt"}
         ],
-        "subtotal": 2390,
+        "subtotal": 3000,
         "deliveryFee": 500,
-        "discountPct": 10,
-        "total": 2601,
-        "note": ""
-    }
-    
-    r = requests.post(f"{BASE_URL}/orders", json=order2)
-    if r.status_code != 200:
-        results.append(log_test("POST /orders (second)", False, f"Status: {r.status_code}"))
-    else:
-        order2_id = r.json().get("id")
-        results.append(log_test("POST /orders (second)", True, f"Order ID: {order2_id}"))
-        
-        # Verify orderCount incremented
-        r = requests.get(f"{BASE_URL}/customers")
-        customers = r.json()
-        customer = next((c for c in customers if c["phone"] == test_phone), None)
-        if customer:
-            order_count_2 = customer.get("orderCount", 0)
-            incremented = order_count_2 >= 2
-            results.append(log_test("Customer orderCount incremented", incremented, 
-                                   f"orderCount: {order_count_2}"))
-        else:
-            results.append(log_test("Customer orderCount check", False, "Customer not found"))
-    
-    # UPDATE ORDER - set status='on_route' and courierId
-    if courier_id:
-        update_data = {
-            "status": "on_route",
-            "courierId": courier_id
-        }
-        r = requests.put(f"{BASE_URL}/orders/{order_id}", json=update_data)
-        if r.status_code != 200:
-            results.append(log_test("PUT /orders/{id}", False, f"Status: {r.status_code}, Response: {r.text}"))
-        else:
-            updated_order = r.json()
-            status_updated = updated_order.get("status") == "on_route"
-            courier_updated = updated_order.get("courierId") == courier_id
-            results.append(log_test("PUT /orders/{id} status & courier", status_updated and courier_updated, 
-                                   f"Status: {updated_order.get('status')}, Courier: {updated_order.get('courierId')}"))
-        
-        # GET ORDERS - confirm update
-        r = requests.get(f"{BASE_URL}/orders")
-        if r.status_code != 200:
-            results.append(log_test("GET /orders", False, f"Status: {r.status_code}"))
-        else:
-            orders = r.json()
-            order = next((o for o in orders if o["id"] == order_id), None)
-            if order:
-                confirmed = order.get("status") == "on_route" and order.get("courierId") == courier_id
-                results.append(log_test("GET /orders confirms update", confirmed, 
-                                       f"Status: {order.get('status')}, Courier: {order.get('courierId')}"))
-            else:
-                results.append(log_test("GET /orders confirms update", False, "Order not found"))
-    else:
-        results.append(log_test("PUT /orders/{id}", False, "No courier available for assignment"))
-    
-    # DELETE ORDER
-    r = requests.delete(f"{BASE_URL}/orders/{order_id}")
-    if r.status_code != 200:
-        results.append(log_test("DELETE /orders/{id}", False, f"Status: {r.status_code}"))
-    else:
-        deleted = r.json()
-        results.append(log_test("DELETE /orders/{id}", deleted.get("deleted") == 1, 
-                               f"Deleted count: {deleted.get('deleted')}"))
-    
-    return all(results)
+        "couponCode": "",
+        "discountAmount": 0,
+        "total": 3500
+    }, headers=headers)
+    assert_status(resp, 200, "Order with subtotal >= 2500 should return 200")
+    data = resp.json()
+    assert data['id'].startswith('ORD-'), f"Order ID should start with ORD-, got {data['id']}"
+    assert data['channel'] == 'house', "Channel should be house"
+    assert data['couponCode'] == '', "CouponCode should be empty"
+    assert data['discountAmount'] == 0, "DiscountAmount should be 0"
+    assert 'userId' in data, "userId should be set"
+    assert data['userId'] == customer_user['id'], "userId should match customer"
+    test_order_id = data['id']
 
-def test_customers_delete():
-    """Test 8: DELETE /customers/{id}"""
-    print(f"\n{Colors.BLUE}=== Test 8: Customers Delete ==={Colors.END}")
-    
-    # Get a customer to delete
-    r = requests.get(f"{BASE_URL}/customers")
-    if r.status_code != 200:
-        return log_test("GET /customers", False, f"Status: {r.status_code}")
-    
-    customers = r.json()
-    if not customers:
-        return log_test("DELETE /customers/{id}", False, "No customers available to delete")
-    
-    customer_id = customers[0]["id"]
-    r = requests.delete(f"{BASE_URL}/customers/{customer_id}")
-    if r.status_code != 200:
-        return log_test("DELETE /customers/{id}", False, f"Status: {r.status_code}")
-    
-    deleted = r.json()
-    return log_test("DELETE /customers/{id}", deleted.get("deleted") == 1, 
-                   f"Deleted customer {customer_id}, count: {deleted.get('deleted')}")
+def test_order_foodora_no_min():
+    """Foodora channel with subtotal < 2500 should succeed"""
+    headers = {"Authorization": f"Bearer {customer_token}"}
+    resp = requests.post(f"{BASE_URL}/orders", json={
+        "customerName": "Nagy Péter",
+        "phone": "+36 30 999 8888",
+        "zip": "3600",
+        "city": "Ózd",
+        "street": "Kossuth utca 5",
+        "floor": "",
+        "type": "delivery",
+        "payment": "online",
+        "channel": "foodora",
+        "items": [{"id": "1", "name": "Margherita", "price": 1000, "qty": 1, "note": ""}],
+        "subtotal": 1000,
+        "deliveryFee": 0,
+        "total": 1000
+    }, headers=headers)
+    assert_status(resp, 200, "Foodora channel should allow subtotal < 2500")
 
-def main():
-    print(f"\n{Colors.YELLOW}{'='*60}{Colors.END}")
-    print(f"{Colors.YELLOW}ZAVO Backend API Test Suite{Colors.END}")
-    print(f"{Colors.YELLOW}Testing: {BASE_URL}{Colors.END}")
-    print(f"{Colors.YELLOW}{'='*60}{Colors.END}")
+def test_order_update_admin():
+    """Admin can update order status"""
+    global courier_id
+    # Get a courier first
+    resp = requests.get(f"{BASE_URL}/couriers")
+    couriers = resp.json()
+    if couriers:
+        courier_id = couriers[0]['id']
     
-    all_results = []
-    
-    # Run all tests in order
-    all_results.append(test_seed_idempotent())
-    all_results.append(test_list_endpoints())
-    all_results.append(test_menu_crud())
-    all_results.append(test_zones_crud())
-    all_results.append(test_couriers_crud())
-    all_results.append(test_inventory_crud())
-    all_results.append(test_orders_lifecycle())
-    all_results.append(test_customers_delete())
-    
-    # Summary
-    print(f"\n{Colors.YELLOW}{'='*60}{Colors.END}")
-    passed = sum(all_results)
-    total = len(all_results)
-    
-    if passed == total:
-        print(f"{Colors.GREEN}✓ ALL TESTS PASSED ({passed}/{total}){Colors.END}")
-    else:
-        print(f"{Colors.RED}✗ SOME TESTS FAILED ({passed}/{total} passed){Colors.END}")
-    
-    print(f"{Colors.YELLOW}{'='*60}{Colors.END}\n")
-    
-    return passed == total
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    resp = requests.put(f"{BASE_URL}/orders/{test_order_id}", json={
+        "status": "preparing",
+        "courierId": courier_id
+    }, headers=headers)
+    assert_status(resp, 200, "Admin should be able to update order")
+    data = resp.json()
+    assert data['status'] == 'preparing', "Status should be updated"
 
-if __name__ == "__main__":
-    import sys
-    success = main()
-    sys.exit(0 if success else 1)
+def test_order_update_customer_forbidden():
+    """Customer cannot update order"""
+    headers = {"Authorization": f"Bearer {customer_token}"}
+    resp = requests.put(f"{BASE_URL}/orders/{test_order_id}", json={
+        "status": "cancelled"
+    }, headers=headers)
+    assert_status(resp, 403, "Customer should not be able to update order")
+
+test("Order delivery+house subtotal < 2500 → 400", test_order_min_validation)
+test("Order delivery+house subtotal >= 2500 → 200", test_order_success)
+test("Order foodora subtotal < 2500 → 200 (no min)", test_order_foodora_no_min)
+test("Admin can update order status", test_order_update_admin)
+test("Customer cannot update order → 403", test_order_update_customer_forbidden)
+
+# ============= E) REPORTS TESTS =============
+print("\n" + "=" * 60)
+print("E) REPORTS TESTS")
+print("=" * 60)
+
+def test_reports_today():
+    """GET /reports/today returns stats"""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    resp = requests.get(f"{BASE_URL}/reports/today", headers=headers)
+    assert_status(resp, 200, "Reports today should return 200")
+    data = resp.json()
+    assert_in('orders', data, "Should have orders count")
+    assert_in('revenue', data, "Should have revenue")
+    assert_in('byPayment', data, "Should have byPayment")
+    assert_in('byChannel', data, "Should have byChannel")
+    assert_in('byCourier', data, "Should have byCourier")
+    assert data['orders'] > 0, "Should have at least one order from previous tests"
+    assert data['revenue'] > 0, "Should have non-zero revenue"
+
+def test_reports_close_day():
+    """POST /reports/close-day archives report"""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    resp = requests.post(f"{BASE_URL}/reports/close-day", headers=headers)
+    assert_status(resp, 200, "Close day should return 200")
+    data = resp.json()
+    assert_in('id', data, "Should have id")
+    assert_in('closedAt', data, "Should have closedAt timestamp")
+    assert_in('orders', data, "Should have orders count")
+
+def test_reports_history():
+    """GET /reports/history lists archived reports"""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    resp = requests.get(f"{BASE_URL}/reports/history", headers=headers)
+    assert_status(resp, 200, "Reports history should return 200")
+    data = resp.json()
+    assert isinstance(data, list), "Should return a list"
+    assert len(data) > 0, "Should have at least one archived report from previous test"
+
+def test_reports_courier():
+    """GET /reports/courier/{id} returns courier metrics"""
+    if not courier_id:
+        print("⚠️  Skipping courier report test (no courier ID)")
+        return
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    resp = requests.get(f"{BASE_URL}/reports/courier/{courier_id}", headers=headers)
+    assert_status(resp, 200, "Courier report should return 200")
+    data = resp.json()
+    assert_in('courierId', data, "Should have courierId")
+    assert_in('courierName', data, "Should have courierName")
+    assert_in('orders', data, "Should have orders count")
+    assert_in('revenue', data, "Should have revenue")
+    assert_in('cash', data, "Should have cash")
+    assert_in('card', data, "Should have card")
+    assert_in('online', data, "Should have online")
+
+test("GET /reports/today returns stats", test_reports_today)
+test("POST /reports/close-day archives report", test_reports_close_day)
+test("GET /reports/history lists reports", test_reports_history)
+test("GET /reports/courier/{id} returns metrics", test_reports_courier)
+
+print("\n" + "=" * 60)
+print("TESTING COMPLETE")
+print("=" * 60)

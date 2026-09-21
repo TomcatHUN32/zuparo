@@ -1,19 +1,35 @@
 import React, { useMemo, useState } from 'react';
-import { Search, MapPin, Bike, ShoppingBag, Store, Banknote, CreditCard, Trash2, Minus, Plus, Percent, CheckCircle2, Printer, Save, Send, Clock, Users } from 'lucide-react';
+import { Search, MapPin, Bike, ShoppingBag, Store, Banknote, CreditCard, Trash2, Minus, Plus, Percent, CheckCircle2, Printer, Save, Send, Clock, Users, Home, Globe, Tag } from 'lucide-react';
 import { useData } from '../../context/DataContext';
 import { CATEGORIES, formatFt } from '../../mock/mockData';
 import { toast } from 'sonner';
 
+const MIN_ORDER = 2500;
+const CHANNELS = [
+  { id: 'house', label: 'Házi', icon: Home },
+  { id: 'foodora', label: 'Foodora', icon: Globe },
+  { id: 'falatozz', label: 'Falatozz', icon: Globe },
+];
+
+const priceForChannel = (m, channel) => {
+  if (channel === 'foodora') return m.priceFoodora || m.price;
+  if (channel === 'falatozz') return m.priceFalatozz || m.price;
+  return m.price;
+};
+
 const NewOrder = () => {
-  const { menu, zones, couriers, customers, addOrder, getZoneFee } = useData();
+  const { menu, zones, couriers, customers, addOrder, validateCoupon, getZoneFee } = useData();
   const [customer, setCustomer] = useState({ name: '', phone: '' });
   const [address, setAddress] = useState({ zip: '3734', city: 'Szuhogy', street: '', floor: '', note: '' });
   const [orderType, setOrderType] = useState('delivery');
   const [payment, setPayment] = useState('cash');
+  const [channel, setChannel] = useState('house');
+  const [foodoraFee, setFoodoraFee] = useState(0);
   const [activeCat, setActiveCat] = useState('pizzak');
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]);
-  const [discountPct, setDiscountPct] = useState(0);
+  const [coupon, setCoupon] = useState('');
+  const [couponApplied, setCouponApplied] = useState(null);
   const [internalNote, setInternalNote] = useState('');
   const [showReturning, setShowReturning] = useState(false);
 
@@ -23,10 +39,11 @@ const NewOrder = () => {
   ), [menu, activeCat, search]);
 
   const addToCart = (m) => {
+    const price = priceForChannel(m, channel);
     setCart((prev) => {
       const idx = prev.findIndex((c) => c.id === m.id && !c.note);
-      if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...copy[idx], qty: copy[idx].qty + 1 }; return copy; }
-      return [...prev, { id: m.id, name: m.name, price: m.price, qty: 1, note: '' }];
+      if (idx >= 0) { const copy = [...prev]; copy[idx] = { ...copy[idx], qty: copy[idx].qty + 1, price }; return copy; }
+      return [...prev, { id: m.id, name: m.name, price, qty: 1, note: '' }];
     });
   };
   const updateQty = (i, delta) => setCart((prev) => prev.map((c, idx) => idx === i ? { ...c, qty: Math.max(1, c.qty + delta) } : c));
@@ -34,9 +51,27 @@ const NewOrder = () => {
   const setItemNote = (i, note) => setCart((prev) => prev.map((c, idx) => idx === i ? { ...c, note } : c));
 
   const subtotal = cart.reduce((s, c) => s + c.price * c.qty, 0);
-  const deliveryFee = orderType === 'delivery' ? getZoneFee(address.zip) : 0;
-  const discountAmount = Math.round(subtotal * discountPct / 100);
-  const total = subtotal - discountAmount + deliveryFee;
+  const deliveryFee = orderType === 'delivery'
+    ? (channel === 'foodora' ? Number(foodoraFee || 0) : getZoneFee(address.zip))
+    : 0;
+  let discountAmount = 0;
+  if (couponApplied) {
+    if (couponApplied.kind === 'percent') discountAmount = Math.round(subtotal * couponApplied.value / 100);
+    else discountAmount = Math.min(subtotal, couponApplied.value);
+  }
+  const total = Math.max(0, subtotal - discountAmount + deliveryFee);
+
+  const applyCoupon = async () => {
+    if (!coupon.trim()) return;
+    try {
+      const c = await validateCoupon(coupon);
+      setCouponApplied(c);
+      toast.success(`Kupon aktív: ${c.code}`);
+    } catch (e) {
+      setCouponApplied(null);
+      toast.error(e.response?.data?.detail || 'Érvénytelen kupon');
+    }
+  };
 
   const pickReturning = (c) => {
     setCustomer({ name: c.name, phone: c.phone });
@@ -44,22 +79,29 @@ const NewOrder = () => {
     setShowReturning(false);
     toast.success(`${c.name} adatai betöltve`);
   };
-  const clearAll = () => { setCart([]); setDiscountPct(0); toast.info('Kosár ürítve'); };
+  const clearAll = () => { setCart([]); setCouponApplied(null); setCoupon(''); toast.info('Kosár ürítve'); };
 
-  const submitOrder = () => {
+  const submitOrder = async () => {
     if (!customer.name || !customer.phone) return toast.error('Kérlek add meg a vendég adatait');
     if (cart.length === 0) return toast.error('A kosár üres');
     if (orderType === 'delivery' && (!address.zip || !address.street)) return toast.error('A szállítási cím hiányos');
-    const o = addOrder({
-      customerName: customer.name, phone: customer.phone,
-      zip: address.zip, city: address.city, street: address.street, floor: address.floor,
-      type: orderType, payment,
-      items: cart, subtotal, deliveryFee, discountPct, total,
-      note: internalNote,
-    });
-    toast.success(`Rendelés elküldve a konyhára: ${o.id}`);
-    setCart([]); setDiscountPct(0); setInternalNote('');
-    setCustomer({ name: '', phone: '' }); setAddress({ zip: '3734', city: 'Szuhogy', street: '', floor: '', note: '' });
+    try {
+      const o = await addOrder({
+        customerName: customer.name, phone: customer.phone,
+        zip: address.zip, city: address.city, street: address.street, floor: address.floor,
+        type: orderType, payment, channel,
+        items: cart, subtotal, deliveryFee,
+        discountPct: couponApplied?.kind === 'percent' ? couponApplied.value : 0,
+        discountAmount,
+        couponCode: couponApplied?.code || '',
+        total, note: internalNote,
+      });
+      toast.success(`Rendelés elküldve: ${o.id}`);
+      setCart([]); setCouponApplied(null); setCoupon(''); setInternalNote('');
+      setCustomer({ name: '', phone: '' }); setAddress({ zip: '3734', city: 'Szuhogy', street: '', floor: '', note: '' });
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Hiba a rendelés mentésekor');
+    }
   };
 
   const activeCouriers = couriers.filter((c) => c.active);
@@ -80,6 +122,7 @@ const NewOrder = () => {
                   <div className="text-xs text-neutral-500">{c.phone} • {c.zip} {c.city}</div>
                 </button>
               ))}
+              {customers.length === 0 && <div className="text-sm text-neutral-500 px-3 py-3">Nincs korábbi vendég.</div>}
             </div>
           )}
           <Field label="Név *"><input value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="input" placeholder="Kiss Ádám" /></Field>
@@ -118,16 +161,31 @@ const NewOrder = () => {
           </div>
         </Card>
 
-        <Card title={<><span className="text-neutral-400 mr-2">4.</span>Fizetés módja</>}>
-          <div className="grid grid-cols-2 gap-3">
+        <Card title={<><span className="text-neutral-400 mr-2">4.</span>Rendelés forrása & ár</>}>
+          <div className="grid grid-cols-3 gap-3">
+            {CHANNELS.map((c) => (
+              <TypeButton key={c.id} active={channel === c.id} onClick={() => { setChannel(c.id); setCart((prev) => prev.map((it) => { const m = menu.find((x) => x.id === it.id); return m ? { ...it, price: priceForChannel(m, c.id) } : it; })); if (c.id !== 'foodora') setFoodoraFee(0); if (c.id !== 'house') setPayment('online'); else setPayment('cash'); }} icon={c.icon} label={c.label} />
+            ))}
+          </div>
+          {channel === 'foodora' && (
+            <div className="mt-3">
+              <div className="text-xs text-neutral-500 mb-1">Foodora szállítási díj (kézi)</div>
+              <input type="number" value={foodoraFee} onChange={(e) => setFoodoraFee(e.target.value)} className="input" placeholder="pl. 690" />
+            </div>
+          )}
+        </Card>
+
+        <Card title={<><span className="text-neutral-400 mr-2">5.</span>Fizetés módja</>}>
+          <div className="grid grid-cols-3 gap-3">
             <TypeButton active={payment === 'cash'} onClick={() => setPayment('cash')} icon={Banknote} label="Készpénz" />
             <TypeButton active={payment === 'card'} onClick={() => setPayment('card')} icon={CreditCard} label="Bankkártya" />
+            <TypeButton active={payment === 'online'} onClick={() => setPayment('online')} icon={Globe} label="Online fizetve" />
           </div>
         </Card>
       </div>
 
       <div className="col-span-4">
-        <Card title={<><span className="text-neutral-400 mr-2">5.</span>Termékek</>}>
+        <Card title={<><span className="text-neutral-400 mr-2">6.</span>Termékek</>}>
           <div className="relative mb-3">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Termék keresése..." className="w-full pl-9 pr-3 py-2.5 rounded-lg bg-neutral-50 border border-neutral-200 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
@@ -138,23 +196,26 @@ const NewOrder = () => {
             ))}
           </div>
           <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
-            {filtered.map((m) => (
-              <div key={m.id} className="flex items-center gap-3 p-3 rounded-lg border border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50 card-hover">
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-semibold text-neutral-900 truncate">{m.name}</div>
-                  {m.description && <div className="text-xs text-neutral-500 truncate">{m.description}</div>}
+            {filtered.map((m) => {
+              const price = priceForChannel(m, channel);
+              return (
+                <div key={m.id} className="flex items-center gap-3 p-3 rounded-lg border border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50 card-hover">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-neutral-900 truncate">{m.name}</div>
+                    {m.description && <div className="text-xs text-neutral-500 truncate">{m.description}</div>}
+                  </div>
+                  <div className="text-sm font-semibold text-neutral-900 whitespace-nowrap">{formatFt(price)}</div>
+                  <button onClick={() => addToCart(m)} className="h-9 w-9 rounded-md bg-neutral-900 hover:bg-neutral-800 text-white flex items-center justify-center"><Plus size={16} /></button>
                 </div>
-                <div className="text-sm font-semibold text-neutral-900 whitespace-nowrap">{formatFt(m.price)}</div>
-                <button onClick={() => addToCart(m)} className="h-9 w-9 rounded-md bg-neutral-900 hover:bg-neutral-800 text-white flex items-center justify-center"><Plus size={16} /></button>
-              </div>
-            ))}
+              );
+            })}
             {filtered.length === 0 && <div className="text-sm text-neutral-500 py-8 text-center">Nincs találat.</div>}
           </div>
         </Card>
       </div>
 
       <div className="col-span-4 space-y-6">
-        <Card title={<><span className="text-neutral-400 mr-2">6.</span>Rendelés kosár</>} action={
+        <Card title={<><span className="text-neutral-400 mr-2">7.</span>Rendelés kosár</>} action={
           <button onClick={clearAll} className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-md text-neutral-600 hover:bg-neutral-100"><Trash2 size={14} /> Kosár ürítése</button>
         }>
           <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
@@ -175,29 +236,37 @@ const NewOrder = () => {
             ))}
             {cart.length === 0 && <div className="text-sm text-neutral-500 py-8 text-center">A kosár még üres.</div>}
           </div>
+
           <div className="mt-3">
             <div className="flex items-center gap-2 rounded-lg bg-neutral-50 border border-neutral-200 px-3 py-2">
-              <Percent size={16} className="text-neutral-500" />
-              <div className="text-sm text-neutral-700 flex-1">Kedvezmény / Kupon</div>
-              <input type="number" min={0} max={100} value={discountPct} onChange={(e) => setDiscountPct(Math.max(0, Math.min(100, parseInt(e.target.value || '0'))))} className="w-16 text-right bg-white border border-neutral-200 rounded px-2 py-1 text-sm" />
-              <span className="text-sm text-neutral-500">%</span>
+              <Tag size={16} className="text-neutral-500" />
+              <input value={coupon} onChange={(e) => setCoupon(e.target.value.toUpperCase())} placeholder="Kuponkód" className="flex-1 bg-transparent focus:outline-none text-sm" />
+              <button onClick={applyCoupon} className="text-xs px-3 py-1.5 rounded-md bg-neutral-900 text-white">Beváltás</button>
             </div>
+            {couponApplied && (
+              <div className="mt-2 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-3 py-2 inline-flex items-center gap-2">
+                <CheckCircle2 size={12} /> {couponApplied.code} • {couponApplied.kind === 'percent' ? `${couponApplied.value}%` : formatFt(couponApplied.value)} kedvezmény
+                <button onClick={() => { setCouponApplied(null); setCoupon(''); }} className="ml-2 text-emerald-800/60 hover:text-emerald-900">✕</button>
+              </div>
+            )}
           </div>
+
           <div className="mt-4 space-y-1.5 text-sm">
             <Row label="Részösszeg" value={formatFt(subtotal)} />
-            {discountAmount > 0 && <Row label={`Kedvezmény (${discountPct}%)`} value={`- ${formatFt(discountAmount)}`} />}
-            {orderType === 'delivery' && <Row label="Kiszállítási díj" value={formatFt(deliveryFee)} />}
+            {discountAmount > 0 && <Row label={`Kedvezmény ${couponApplied?.kind === 'percent' ? `(${couponApplied.value}%)` : ''}`} value={`- ${formatFt(discountAmount)}`} />}
+            {orderType === 'delivery' && <Row label={channel === 'foodora' ? 'Foodora szállítás' : 'Kiszállítási díj'} value={formatFt(deliveryFee)} />}
             <div className="flex items-center justify-between pt-2 mt-2 border-t border-neutral-200">
               <div className="text-lg font-extrabold text-neutral-900">ÖSSZESEN:</div>
               <div className="text-2xl font-extrabold text-neutral-900">{formatFt(total)}</div>
             </div>
           </div>
-          <button onClick={submitOrder} className="mt-4 w-full inline-flex items-center justify-center gap-2 bg-neutral-900 hover:bg-neutral-800 text-white font-semibold py-3 rounded-lg">
+
+          <button onClick={submitOrder} className="mt-4 w-full inline-flex items-center justify-center gap-2 font-semibold py-3 rounded-lg bg-neutral-900 hover:bg-neutral-800 text-white">
             <CheckCircle2 size={18} /> Rendelés véglegesítése
           </button>
           <div className="grid grid-cols-2 gap-3 mt-3">
-            <button className="inline-flex items-center justify-center gap-2 py-2.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-sm"><Printer size={16} /> Nyugta előnézet</button>
-            <button className="inline-flex items-center justify-center gap-2 py-2.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-sm"><Save size={16} /> Rendelés mentése</button>
+            <button onClick={() => toast.info('Nyugta előnézet készül...')} className="inline-flex items-center justify-center gap-2 py-2.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-sm"><Printer size={16} /> Nyugta előnézet</button>
+            <button onClick={() => toast.info('Rendelés mentve piszkozatként')} className="inline-flex items-center justify-center gap-2 py-2.5 rounded-lg border border-neutral-200 bg-white hover:bg-neutral-50 text-sm"><Save size={16} /> Rendelés mentése</button>
           </div>
         </Card>
 
@@ -232,7 +301,7 @@ const NewOrder = () => {
         </div>
       </div>
       <div className="col-span-12">
-        <button onClick={submitOrder} className="w-full inline-flex items-center justify-center gap-2 bg-neutral-900 hover:bg-neutral-800 text-white font-semibold py-3.5 rounded-xl"><Send size={18} /> Rendelés elküldése a konyhára</button>
+        <button onClick={submitOrder} className="w-full inline-flex items-center justify-center gap-2 font-semibold py-3.5 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-white"><Send size={18} /> Rendelés elküldése a konyhára</button>
       </div>
       <style>{`.input { width:100%; padding:0.55rem 0.75rem; border:1px solid #e5e7eb; border-radius:0.5rem; font-size:0.875rem; background:#fff; outline:none; }
         .input:focus { border-color:#171717; box-shadow: 0 0 0 3px rgba(23,23,23,0.08); }`}</style>

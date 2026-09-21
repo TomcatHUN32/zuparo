@@ -208,6 +208,76 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ Seed endpoint tested successfully. Idempotency confirmed - returns empty seeded map when data already exists. Verified all collections populated: 30 menu items, 5 zones, 3 couriers, 7 inventory items."
+  - task: "Auth endpoints (register, login, /me)"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/auth/register creates customer users with JWT token. POST /api/auth/login authenticates users. GET /api/auth/me returns current user from Bearer token. Admin seeded: admin@zavo.hu / admin123."
+      - working: true
+        agent: "testing"
+        comment: "✅ All auth endpoints tested successfully. Register creates customer with role='customer' and returns token+user. Duplicate email returns 400. Admin login works with admin@zavo.hu/admin123 returning role='admin'. GET /auth/me returns correct user for both admin and customer tokens. 401 returned when no token provided."
+  - task: "Role-based access control"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Admin-only endpoints protected with require_admin dependency. Public reads allowed for /menu, /zones, /couriers, /coupons. Admin-only: POST/PUT/DELETE on menu, zones, couriers, inventory, coupons, orders (update/delete), GET /customers, /inventory, /orders, all /reports endpoints."
+      - working: true
+        agent: "testing"
+        comment: "✅ Role protection fully functional. Public endpoints (GET /menu, /zones, /couriers, /coupons) work without auth. Admin-only endpoints return 401 without token and 403 with customer token. All reports endpoints correctly require admin role."
+  - task: "Coupons CRUD and validation"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET/POST/PUT/DELETE /api/coupons with admin protection. POST /api/coupons/validate checks code (uppercase) and active=True, returns 404 if not found or inactive."
+      - working: true
+        agent: "testing"
+        comment: "✅ Coupons fully working. Created percent coupon (ZAVO10, 10%) and amount coupon (VIP500, 500 Ft) as admin. Validation returns 200 for active coupons. After deactivating coupon, validation correctly returns 404."
+  - task: "Orders with auth and new fields"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/orders requires authentication (any user). Min order 2500 Ft enforced for delivery+house channel only. Sets userId from authenticated user. Order ID format: ORD-YYYY-####. Customer upsert by phone. PUT/DELETE require admin."
+      - working: true
+        agent: "testing"
+        comment: "✅ Orders with auth fully functional. Min order validation works: delivery+house with subtotal < 2500 returns 400 with Hungarian error message. Orders with subtotal >= 2500 succeed with correct ORD-2026-#### format, channel, couponCode='', discountAmount=0, userId set. Foodora channel allows subtotal < 2500 (no min). Admin can update order status/courier, customer gets 403 when trying to update."
+  - task: "Reports endpoints"
+    implemented: true
+    working: true
+    file: "backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/reports/today returns today's stats (orders count, revenue, byPayment, byChannel, byCourier). POST /api/reports/close-day archives report. GET /api/reports/history lists archived reports. GET /api/reports/courier/{id} returns per-courier metrics. All require admin."
+      - working: true
+        agent: "testing"
+        comment: "✅ All reports endpoints working correctly. GET /reports/today returns non-zero orders and revenue with byPayment, byChannel, byCourier arrays. POST /reports/close-day successfully archives report with id and closedAt timestamp. GET /reports/history returns list with archived reports. GET /reports/courier/{id} returns courier metrics with orders, revenue, cash, card, online breakdown."
 
 frontend:
   - task: "Admin – New Order page (phone order intake)"
@@ -254,8 +324,8 @@ frontend:
 
 metadata:
   created_by: "main_agent"
-  version: "1.0"
-  test_sequence: 1
+  version: "1.1"
+  test_sequence: 2
   run_ui: false
 
 test_plan:
@@ -267,12 +337,28 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: |
-      Please test all backend endpoints under /api. Start by calling POST /api/seed (idempotent).
-      Then verify: GET all list endpoints return non-empty seeded data.
-      Test menu/zones/couriers/inventory CRUD (create, update, delete lifecycle).
-      For orders: POST /api/orders with a delivery order (include items, subtotal, deliveryFee, total).
-      Verify: response has id like ORD-YYYY-####, status='new'; a customer with same phone exists in GET /api/customers with incremented orderCount. Then PUT /api/orders/{id} to set status='on_route' and a courierId; GET /api/orders confirms update; DELETE /api/orders/{id}.
-      Use the frontend URL's backend from REACT_APP_BACKEND_URL. All routes are prefixed with /api.
+      New features added (v1.1). Please test:
+      A) Auth flow:
+         - POST /api/auth/register with new email/password/name/phone → returns token + user (role=customer).
+         - POST /api/auth/login with admin@zavo.hu / admin123 → returns token + user (role=admin).
+         - GET /api/auth/me with Bearer token returns current user.
+      B) Role protection:
+         - Admin-only endpoints must return 401/403 without token or with customer token: POST/PUT/DELETE /api/menu, /api/zones, /api/couriers, /api/inventory, /api/coupons, /api/orders (update/delete), /api/customers, /api/reports/*.
+         - Public GETs still work without auth: /api/menu, /api/zones, /api/couriers, /api/coupons.
+      C) Coupons:
+         - Create % coupon (e.g. ZAVO10 percent 10) and Ft coupon (VIP500 amount 500) as admin.
+         - POST /api/coupons/validate {code} works for active codes.
+         - Deactivating a coupon → validate returns 404.
+      D) Orders with new fields:
+         - As logged-in customer, POST /api/orders (delivery, house channel) with subtotal < 2500 → 400 with min-order message.
+         - With subtotal >= 2500 → 200; response has channel, couponCode, discountAmount, userId set. Customer upserted.
+         - Foodora channel with subtotal < 2500 → allowed (only house channel enforces min).
+         - PUT /api/orders/{id} with admin token to set status/courierId works; with customer token → 403.
+      E) Reports:
+         - GET /api/reports/today (admin) after a few orders returns orders count, revenue, byPayment, byChannel, byCourier arrays.
+         - POST /api/reports/close-day archives; GET /api/reports/history lists it.
+         - GET /api/reports/courier/{id} returns per-courier metrics.
+      All routes /api prefixed. Use REACT_APP_BACKEND_URL as base.
   - agent: "testing"
     message: |
       ✅ ALL BACKEND TESTS PASSED (8/8)
@@ -295,3 +381,47 @@ agent_communication:
       8. ✅ Customers delete - Working correctly
       
       All backend APIs are fully functional. No issues found.
+  - agent: "testing"
+    message: |
+      ✅ ALL v1.1 BACKEND TESTS PASSED (29/29)
+      
+      Comprehensive v1.1 feature testing completed at https://order-app-65.preview.emergentagent.com/api
+      
+      Test Results Summary:
+      
+      A) AUTH FLOW (6/6 tests passed):
+         ✅ Register new customer - Creates user with role='customer', returns token+user
+         ✅ Register duplicate email → 400 - Proper validation
+         ✅ Admin login - admin@zavo.hu/admin123 works, returns role='admin'
+         ✅ GET /auth/me with customer token - Returns correct user
+         ✅ GET /auth/me with admin token - Returns correct admin user
+         ✅ GET /auth/me without token → 401 - Proper auth check
+      
+      B) ROLE PROTECTION (5/5 tests passed):
+         ✅ Public reads work without auth - GET /menu, /zones, /couriers, /coupons accessible
+         ✅ Admin endpoints → 401 without auth - POST/PUT/DELETE protected
+         ✅ Admin endpoints → 403 with customer token - Role enforcement working
+         ✅ Reports → 401 without auth - Protected correctly
+         ✅ Reports → 403 with customer token - Role enforcement working
+      
+      C) COUPONS (4/4 tests passed):
+         ✅ Create percent coupon (ZAVO10) - 10% discount created
+         ✅ Create amount coupon (VIP500) - 500 Ft discount created
+         ✅ Validate active coupon - Returns coupon data
+         ✅ Deactivate coupon → validate returns 404 - Proper validation
+      
+      D) ORDERS WITH AUTH (5/5 tests passed):
+         ✅ Order delivery+house subtotal < 2500 → 400 - Min order enforced with Hungarian error message
+         ✅ Order delivery+house subtotal >= 2500 → 200 - Order created with ORD-2026-#### format, userId set
+         ✅ Order foodora subtotal < 2500 → 200 (no min) - Channel-specific rules working
+         ✅ Admin can update order status - Status and courier assignment working
+         ✅ Customer cannot update order → 403 - Role protection working
+      
+      E) REPORTS (4/4 tests passed):
+         ✅ GET /reports/today returns stats - Non-zero orders/revenue, byPayment/byChannel/byCourier present
+         ✅ POST /reports/close-day archives report - Returns entry with id and closedAt
+         ✅ GET /reports/history lists reports - Contains archived report
+         ✅ GET /reports/courier/{id} returns metrics - Orders, revenue, cash/card/online breakdown
+      
+      All v1.1 backend features are fully functional. No issues found.
+
