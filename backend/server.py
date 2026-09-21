@@ -92,6 +92,10 @@ async def me(user=Depends(get_current_user)):
     return user
 
 # =============== Models ===============
+class RecipeEntry(BaseModel):
+    inventoryId: str
+    qty: float
+
 class MenuItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     category: str
@@ -101,6 +105,7 @@ class MenuItem(BaseModel):
     priceFoodora: Optional[int] = None
     priceFalatozz: Optional[int] = None
     available: bool = True
+    recipe: List[RecipeEntry] = []
 
 class MenuItemIn(BaseModel):
     category: str
@@ -110,6 +115,7 @@ class MenuItemIn(BaseModel):
     priceFoodora: Optional[int] = None
     priceFalatozz: Optional[int] = None
     available: Optional[bool] = True
+    recipe: Optional[List[RecipeEntry]] = []
 
 class MenuItemUpdate(BaseModel):
     category: Optional[str] = None
@@ -119,6 +125,7 @@ class MenuItemUpdate(BaseModel):
     priceFoodora: Optional[int] = None
     priceFalatozz: Optional[int] = None
     available: Optional[bool] = None
+    recipe: Optional[List[RecipeEntry]] = None
 
 class Zone(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -355,6 +362,18 @@ async def create_order(o: OrderIn, user=Depends(get_current_user)):
                 createdAt=datetime.now(timezone.utc).isoformat(),
                 userId=user['id']).dict()
     await db.orders.insert_one(doc)
+    # Auto-consume inventory based on menu item recipes
+    try:
+        for it in o.items:
+            m = await db.menu_items.find_one({"id": it.id})
+            if not m: continue
+            for r in (m.get('recipe') or []):
+                await db.inventory.update_one(
+                    {"id": r.get('inventoryId')},
+                    {"$inc": {"stock": -float(r.get('qty', 0)) * int(it.qty)}}
+                )
+    except Exception as e:
+        logger.error(f"Inventory consumption error: {e}")
     # Upsert customer (by phone)
     existing = await db.customers.find_one({"phone": o.phone})
     if existing:

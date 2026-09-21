@@ -39,7 +39,7 @@ const Home = () => {
           </div>
           <div className="col-span-12 md:col-span-6 flex justify-center">
             <div className="relative">
-              <img src={LOGO_URL} alt="ZUPARO Pizza" className="h-[380px] md:h-[460px] object-contain drop-shadow-[0_30px_60px_rgba(212,175,55,0.25)]" />
+              <img src="https://images.unsplash.com/photo-1669717879542-65eb286d1b23?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2Nzd8MHwxfHNlYXJjaHwyfHxwaXp6YSUyMGNoZWVzZSUyMHB1bGwlMjBkYXJrfGVufDB8fHx8MTc4OTk5ODQ4NHww&ixlib=rb-4.1.0&q=85" alt="ZUPARO Pizza" className="h-[380px] md:h-[460px] w-auto object-cover rounded-3xl drop-shadow-[0_30px_60px_rgba(212,175,55,0.35)]" />
               <div className="absolute -bottom-4 -right-4 bg-neutral-900 border border-neutral-800 rounded-2xl px-4 py-3 flex items-center gap-2 shadow-2xl">
                 <Flame size={22} className="text-[#d4af37]" />
                 <div className="leading-tight"><div className="text-xs text-neutral-400">FRISSEN.</div><div className="text-xs text-neutral-400">SZAFTOSAN.</div><div className="text-xs text-neutral-400">NEKED.</div></div>
